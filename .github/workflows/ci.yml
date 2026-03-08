@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Test / Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --python ${{ matrix.python-version }}
+
+      - name: Run tests
+        run: uv run pytest --tb=short -q
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Ruff check
+        run: uv run ruff check src/ tests/
+
+      - name: Ruff format check
+        run: uv run ruff format --check src/ tests/
+
+  type-check:
+    name: Types / ${{ matrix.checker }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        checker: [mypy, pyright, ty, pyrefly]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run mypy
+        if: matrix.checker == 'mypy'
+        run: uv run mypy src/typewirepy/
+
+      - name: Run pyright
+        if: matrix.checker == 'pyright'
+        run: uv run pyright src/typewirepy/
+
+      - name: Run ty
+        if: matrix.checker == 'ty'
+        run: uv run ty check src/typewirepy/
+        continue-on-error: true
+
+      - name: Run pyrefly
+        if: matrix.checker == 'pyrefly'
+        run: uv run pyrefly check src/typewirepy/
+        continue-on-error: true
+
+  ci-ok:
+    name: CI OK
+    needs: [test, lint, type-check]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - run: |
+          test "${{ needs.test.result }}" = "success" \
+            && test "${{ needs.lint.result }}" = "success" \
+            && test "${{ needs.type-check.result }}" = "success"

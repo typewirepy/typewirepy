@@ -1,0 +1,50 @@
+# ── Python ──
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+*.whl
+
+# ── Virtual environments ──
+.venv/
+venv/
+ENV/
+
+# ── UV ──
+# uv.lock is committed (reproducibility)
+# .python-version is committed
+
+# ── IDE ──
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ── Testing ──
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# ── Type checkers ──
+.mypy_cache/
+.pyright/
+.ty/
+
+# ── Nix / devenv / direnv ──
+result
+result-*
+.devenv/
+.devenv.flake.nix
+.direnv/
+# flake.lock is committed (reproducibility)
+
+# ── Distribution ──
+dist/
+*.tar.gz
