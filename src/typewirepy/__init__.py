@@ -9,10 +9,12 @@ from typewirepy.errors import (
 )
 from typewirepy.group import TypeWireGroup
 from typewirepy.protocols import ContainerAdapter
-from typewirepy.scope import Scope
+from typewirepy.scope import SINGLETON, TRANSIENT, Scope
 from typewirepy.wire import TypeWire
 
 __all__ = [
+    "SINGLETON",
+    "TRANSIENT",
     "CircularDependencyError",
     "ContainerAdapter",
     "CreatorError",

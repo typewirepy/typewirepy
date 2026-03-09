@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import enum
+from typing import TypeAlias
 
+Scope: TypeAlias = str
 
-class Scope(enum.Enum):
-    """Lifecycle scope for a wire's resolved value."""
-
-    SINGLETON = "singleton"
-    TRANSIENT = "transient"
+SINGLETON: Scope = "singleton"
+TRANSIENT: Scope = "transient"

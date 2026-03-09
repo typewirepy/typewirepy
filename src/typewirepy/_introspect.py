@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import inspect
-from typing import Any, Literal
+from typing import Literal
 
 
 def detect_convention(
-    create_with: Any,
+    create_with: object,
     import_keys: set[str],
     *,
     strict: bool = False,
@@ -21,7 +21,7 @@ def detect_convention(
     from typewirepy.errors import TypeWireError
 
     try:
-        sig = inspect.signature(create_with)
+        sig = inspect.signature(create_with)  # type: ignore[arg-type]
     except (ValueError, TypeError):
         return "dict"
 
@@ -40,13 +40,13 @@ def detect_convention(
     return "dict"
 
 
-def detect_creator_arity(fn: Any) -> Literal[1, 2]:
+def detect_creator_arity(fn: object) -> Literal[1, 2]:
     """Detect whether a with_creator callback takes 1 arg (ctx) or 2 args (ctx, original).
 
     Returns 1 or 2. Falls back to 1 for uninspectable callables.
     """
     try:
-        sig = inspect.signature(fn)
+        sig = inspect.signature(fn)  # type: ignore[arg-type]
     except (ValueError, TypeError):
         return 1
 

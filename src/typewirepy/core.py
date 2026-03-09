@@ -3,13 +3,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, TypeVar, overload
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable
 
 from typewirepy._introspect import detect_convention
 from typewirepy._token import _WireToken
 from typewirepy.errors import TypeWireError
 from typewirepy.group import TypeWireGroup
-from typewirepy.scope import Scope
+from typewirepy.scope import SINGLETON, Scope
 from typewirepy.wire import TypeWire
 
 T = TypeVar("T")
@@ -19,7 +19,7 @@ T = TypeVar("T")
 def type_wire_of(
     *,
     token: str,
-    creator: Callable[[], T],
+    creator: Callable[[], T | Awaitable[T]],
     scope: Scope = ...,
 ) -> TypeWire[T]: ...
 
@@ -28,7 +28,7 @@ def type_wire_of(
 def type_wire_of(
     *,
     token: str,
-    create_with: Callable[..., T],
+    create_with: Callable[..., T | Awaitable[T]],
     imports: dict[str, TypeWire[Any]],
     scope: Scope = ...,
 ) -> TypeWire[T]: ...
@@ -40,7 +40,7 @@ def type_wire_of(
     creator: Callable[..., Any] | None = None,
     create_with: Callable[..., Any] | None = None,
     imports: dict[str, TypeWire[Any]] | None = None,
-    scope: Scope = Scope.SINGLETON,
+    scope: Scope = SINGLETON,
 ) -> TypeWire[Any]:
     """Create a new wire.
 
@@ -64,7 +64,7 @@ def type_wire_of(
     if create_with is not None:
         convention = detect_convention(create_with, set(resolved_imports.keys()), strict=True)
 
-    wire_token = _WireToken(token)
+    wire_token: _WireToken[Any] = _WireToken(token)
 
     return TypeWire(
         token=wire_token,

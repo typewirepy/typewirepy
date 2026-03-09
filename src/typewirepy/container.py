@@ -4,16 +4,18 @@ import asyncio
 import contextlib
 import inspect
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
-from typewirepy.scope import Scope
+from typewirepy.scope import SINGLETON, Scope
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable
 
     from typewirepy._token import _WireToken
 
 from typewirepy.errors import WireNotRegisteredError
+
+T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
 
@@ -22,27 +24,28 @@ class TypeWireContainer:
     """Default async container that stores factories, manages scopes, and handles teardown."""
 
     def __init__(self) -> None:
-        self._factories: dict[_WireToken, Callable[[], Any]] = {}
-        self._scopes: dict[_WireToken, Scope] = {}
-        self._singletons: dict[_WireToken, Any] = {}
-        self._generators: list[Any] = []
+        self._factories: dict[_WireToken[object], Callable[[], Awaitable[object]]] = {}
+        self._scopes: dict[_WireToken[object], Scope] = {}
+        self._singletons: dict[_WireToken[object], object] = {}
+        self._generators: list[object] = []
 
-    async def register(self, token: _WireToken, factory: Callable[[], Any], scope: Scope) -> None:
+    async def register(
+        self, token: _WireToken[T], factory: Callable[[], Awaitable[T]], scope: Scope
+    ) -> None:
         """Store a factory and its scope for later resolution."""
         self._factories[token] = factory
         self._scopes[token] = scope
 
-    async def resolve(self, token: _WireToken) -> Any:
+    async def resolve(self, token: _WireToken[T]) -> T:
         """Resolve a token to its value, caching singletons and tracking generators."""
         if token not in self._factories:
             raise WireNotRegisteredError(token.label)
 
         if token in self._singletons:
-            return self._singletons[token]
+            return cast("T", self._singletons[token])
 
-        result = self._factories[token]()
-        if inspect.isawaitable(result):
-            result = await result
+        raw = self._factories[token]()
+        result: object = await raw if inspect.isawaitable(raw) else raw
 
         if inspect.isasyncgen(result):
             value = await result.__anext__()
@@ -53,12 +56,12 @@ class TypeWireContainer:
             self._generators.append(result)
             result = value
 
-        if self._scopes[token] == Scope.SINGLETON:
+        if self._scopes[token] == SINGLETON:
             self._singletons[token] = result
 
-        return result
+        return cast("T", result)
 
-    def has(self, token: _WireToken) -> bool:
+    def has(self, token: _WireToken[object]) -> bool:
         """Return True if a factory has been registered for *token*."""
         return token in self._factories
 
@@ -71,7 +74,7 @@ class TypeWireContainer:
                         await gen.__anext__()
                 else:
                     with contextlib.suppress(StopIteration):
-                        next(gen)
+                        next(gen)  # type: ignore[call-overload]
             except Exception:  # noqa: PERF203
                 logger.exception("Error during teardown of generator %r", gen)
 

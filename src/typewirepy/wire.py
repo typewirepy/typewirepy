@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
-from typing import TYPE_CHECKING, Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast, overload
 
 from typewirepy._introspect import detect_creator_arity
 from typewirepy.errors import CircularDependencyError, CreatorError, WireNotRegisteredError
@@ -16,13 +16,22 @@ if TYPE_CHECKING:
     from typewirepy.scope import Scope
 
 T = TypeVar("T")
+_R = TypeVar("_R")
 
 logger = logging.getLogger(__name__)
 
 
-async def _maybe_await(value: Any) -> Any:
+@overload
+async def _maybe_await(value: Awaitable[_R]) -> _R: ...
+
+
+@overload
+async def _maybe_await(value: _R) -> _R: ...
+
+
+async def _maybe_await(value: _R | Awaitable[_R]) -> _R:
     if inspect.isawaitable(value):
-        return await value
+        return cast("_R", await cast("Awaitable[object]", value))
     return value
 
 
@@ -41,9 +50,9 @@ class TypeWire(Generic[T]):
 
     def __init__(
         self,
-        token: _WireToken,
-        creator: Callable[..., Any] | None,
-        create_with: Callable[..., Any] | None,
+        token: _WireToken[T],
+        creator: Callable[[], T | Awaitable[T]] | None,
+        create_with: Callable[..., T | Awaitable[T]] | None,
         imports: dict[str, TypeWire[Any]],
         scope: Scope,
         convention: str,
@@ -66,13 +75,14 @@ class TypeWire(Generic[T]):
 
     def __repr__(self) -> str:
         import_keys: set[str] = set(self._imports.keys()) if self._imports else set()
-        scope_name = f"Scope.{self._scope.name}"
-        return f"TypeWire(token={self._token.label!r}, scope={scope_name}, imports={import_keys!r})"
+        return (
+            f"TypeWire(token={self._token.label!r}, scope={self._scope!r}, imports={import_keys!r})"
+        )
 
     async def apply(
         self,
         container: ContainerAdapter,
-        _path: list[_WireToken] | None = None,
+        _path: list[_WireToken[object]] | None = None,
         _is_import: bool = False,
     ) -> None:
         """Register this wire and its imports into the container."""
@@ -103,16 +113,16 @@ class TypeWire(Generic[T]):
         async def factory() -> T:
             try:
                 if wire._create_with is not None:
-                    resolved: dict[str, Any] = {}
+                    resolved: dict[str, object] = {}
                     for name, imp_wire in wire._imports.items():
                         resolved[name] = await container.resolve(imp_wire._token)
                     if wire._convention == "kwargs":
                         result = wire._create_with(**resolved)
                     else:
                         result = wire._create_with(resolved)
-                    return await _maybe_await(result)  # type: ignore[no-any-return]
+                    return cast("T", await _maybe_await(result))
                 else:
-                    return await _maybe_await(wire._creator())  # type: ignore[misc, no-any-return]
+                    return await _maybe_await(wire._creator())  # type: ignore[misc]
             except CreatorError:
                 raise
             except Exception as e:
@@ -124,11 +134,11 @@ class TypeWire(Generic[T]):
         """Resolve this wire's value from the container."""
         if not container.has(self._token):
             raise WireNotRegisteredError(self._token.label)
-        return await container.resolve(self._token)  # type: ignore[no-any-return]
+        return await container.resolve(self._token)
 
     def with_creator(
         self,
-        fn: Callable[..., Any],
+        fn: Callable[..., T | Awaitable[T]],
     ) -> TypeWire[T]:
         """Return a new wire with the creator replaced by *fn*."""
         arity = detect_creator_arity(fn)
@@ -136,14 +146,14 @@ class TypeWire(Generic[T]):
         if arity == 2:
             original_wire = self
 
-            def wrapped_creator() -> Any:
+            def wrapped_creator() -> Awaitable[T]:
                 original_factory = original_wire._creator or original_wire._create_with
 
-                async def _call_with_original() -> Any:
-                    async def original_caller() -> Any:
+                async def _call_with_original() -> T:
+                    async def original_caller() -> T:
                         return await _maybe_await(original_factory())  # type: ignore[misc]
 
-                    return await _maybe_await(fn(None, original_caller))
+                    return cast("T", await _maybe_await(fn(None, original_caller)))
 
                 return _call_with_original()
 
@@ -157,7 +167,7 @@ class TypeWire(Generic[T]):
             )
         else:
 
-            def one_arg_creator() -> Any:
+            def one_arg_creator() -> T | Awaitable[T]:
                 return fn(None)
 
             return TypeWire(

@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from typing import Generic, TypeVar
 
-class _WireToken:
+T_co = TypeVar("T_co", covariant=True)
+
+
+class _WireToken(Generic[T_co]):
     """Internal unique identity. Equivalent to Symbol(label) in JavaScript."""
 
     __slots__ = ("label",)
