@@ -9,8 +9,16 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class ContainerAdapter(Protocol):
-    async def register(self, token: _WireToken, factory: Any, scope: Scope) -> None: ...
+    """Protocol that any DI container must satisfy to work with TypeWire."""
 
-    async def resolve(self, token: _WireToken) -> Any: ...
+    async def register(self, token: _WireToken, factory: Any, scope: Scope) -> None:
+        """Store a factory for *token* with the given *scope*."""
+        ...
 
-    def has(self, token: _WireToken) -> bool: ...
+    async def resolve(self, token: _WireToken) -> Any:
+        """Resolve *token* to its value."""
+        ...
+
+    def has(self, token: _WireToken) -> bool:
+        """Return True if *token* has been registered."""
+        ...

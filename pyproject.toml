@@ -102,4 +102,8 @@ select = [
     "SIM",  # simplify
     "TC",   # type-checking imports
     "RUF",  # ruff-specific
+    "PT",   # pytest style
+    "PIE",  # misc. lints
+    "C4",   # comprehension style
+    "PERF", # performance anti-patterns
 ]

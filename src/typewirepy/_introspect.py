@@ -4,12 +4,22 @@ import inspect
 from typing import Any, Literal
 
 
-def detect_convention(create_with: Any, import_keys: set[str]) -> Literal["dict", "kwargs"]:
+def detect_convention(
+    create_with: Any,
+    import_keys: set[str],
+    *,
+    strict: bool = False,
+) -> Literal["dict", "kwargs"]:
     """Detect whether create_with expects a dict (Convention A) or kwargs (Convention B).
 
     Convention B: function has keyword-only params (after *) matching import keys.
     Convention A: everything else (lambdas, *args, **kwargs, single dict param).
+
+    When strict=True, raises TypeWireError if keyword-only params exist but don't
+    match import keys exactly.
     """
+    from typewirepy.errors import TypeWireError
+
     try:
         sig = inspect.signature(create_with)
     except (ValueError, TypeError):
@@ -21,6 +31,11 @@ def detect_convention(create_with: Any, import_keys: set[str]) -> Literal["dict"
 
     if kw_only and kw_only == import_keys:
         return "kwargs"
+
+    if strict and kw_only and kw_only != import_keys:
+        raise TypeWireError(
+            f"Convention B mismatch: create_with params {kw_only} != import keys {import_keys}"
+        )
 
     return "dict"
 

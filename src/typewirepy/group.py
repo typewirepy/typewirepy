@@ -10,6 +10,8 @@ if TYPE_CHECKING:
 
 
 class TypeWireGroup:
+    """Immutable ordered collection of wires, applied as a unit."""
+
     __slots__ = ("_wires",)
 
     def __init__(self, wires: list[TypeWire[Any]]) -> None:

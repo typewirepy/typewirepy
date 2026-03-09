@@ -15,6 +15,8 @@ def wire_depends(
     wire: TypeWire[T],
     get_container: Callable[[], TypeWireContainer],
 ) -> Any:
+    """Return a FastAPI dependency that resolves *wire* from the container."""
+
     async def _resolver() -> T:
         return await wire.get_instance(get_container())
 

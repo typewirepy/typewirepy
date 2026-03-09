@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from typewirepy import TypeWireContainer, type_wire_group_of, type_wire_of
+import pytest
+
+from typewirepy import CreatorError, TypeWireContainer, type_wire_group_of, type_wire_of
 
 
 async def test_group_apply() -> None:
@@ -39,3 +41,17 @@ def test_group_repr() -> None:
     w2 = type_wire_of(token="B", creator=lambda: 2)
     group = type_wire_group_of([w1, w2])
     assert repr(group) == "TypeWireGroup(wires=['A', 'B'])"
+
+
+async def test_group_apply_propagates_creator_error() -> None:
+    def bad_creator() -> str:
+        raise ValueError("boom")
+
+    w_good = type_wire_of(token="Good", creator=lambda: "ok")
+    w_bad = type_wire_of(token="Bad", creator=bad_creator)
+    group = type_wire_group_of([w_good, w_bad])
+
+    async with TypeWireContainer() as container:
+        await group.apply(container)
+        with pytest.raises(CreatorError, match="boom"):
+            await w_bad.get_instance(container)

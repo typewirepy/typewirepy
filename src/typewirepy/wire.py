@@ -27,6 +27,8 @@ async def _maybe_await(value: Any) -> Any:
 
 
 class TypeWire(Generic[T]):
+    """Immutable description of a dependency — its token, creator, imports, and scope."""
+
     __slots__ = ("_convention", "_create_with", "_creator", "_imports", "_scope", "_token")
 
     def __init__(
@@ -62,6 +64,7 @@ class TypeWire(Generic[T]):
         _path: list[_WireToken] | None = None,
         _is_import: bool = False,
     ) -> None:
+        """Register this wire and its imports into the container."""
         if _path is None:
             _path = []
 
@@ -75,7 +78,7 @@ class TypeWire(Generic[T]):
 
         _path.append(self._token)
 
-        for _name, imp_wire in self._imports.items():
+        for imp_wire in self._imports.values():
             await imp_wire.apply(container, _path, _is_import=True)
 
         factory = self._make_factory(container)
@@ -107,6 +110,7 @@ class TypeWire(Generic[T]):
         return factory
 
     async def get_instance(self, container: ContainerAdapter) -> T:
+        """Resolve this wire's value from the container."""
         if not container.has(self._token):
             raise WireNotRegisteredError(self._token.label)
         return await container.resolve(self._token)  # type: ignore[return-value]
@@ -115,6 +119,7 @@ class TypeWire(Generic[T]):
         self,
         fn: Callable[..., Any],
     ) -> TypeWire[T]:
+        """Return a new wire with the creator replaced by *fn*."""
         arity = detect_creator_arity(fn)
 
         if arity == 2:
@@ -154,10 +159,12 @@ class TypeWire(Generic[T]):
             )
 
     def apply_sync(self, container: ContainerAdapter) -> None:
+        """Synchronous wrapper around :meth:`apply`."""
         _check_no_running_loop()
         asyncio.run(self.apply(container))
 
     def get_instance_sync(self, container: ContainerAdapter) -> T:
+        """Synchronous wrapper around :meth:`get_instance`."""
         _check_no_running_loop()
         return asyncio.run(self.get_instance(container))
 
