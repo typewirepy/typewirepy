@@ -81,3 +81,5 @@ async def test_error_during_cleanup_handled(caplog: Any) -> None:
 
     # Teardown should not raise even though w1's cleanup fails
     await container.teardown()
+
+    assert "cleanup boom" in caplog.text

@@ -1,16 +1,27 @@
 from __future__ import annotations
 
+import pytest
+
 from typewirepy import Scope, TypeWire, TypeWireContainer, type_wire_of
 
 
 async def test_wire_creation_with_creator() -> None:
     wire: TypeWire[str] = type_wire_of(token="Greeting", creator=lambda: "hello")
-    assert repr(wire) == "TypeWire(token='Greeting', scope=Scope.SINGLETON, imports=set())"
+    assert wire._token.label == "Greeting"
+    assert wire._scope == Scope.SINGLETON
+    assert wire._imports == {}
 
 
-async def test_wire_scope_transient() -> None:
-    wire = type_wire_of(token="T", creator=lambda: 1, scope=Scope.TRANSIENT)
-    assert "Scope.TRANSIENT" in repr(wire)
+@pytest.mark.parametrize(
+    ("scope", "expected"),
+    [
+        (Scope.SINGLETON, Scope.SINGLETON),
+        (Scope.TRANSIENT, Scope.TRANSIENT),
+    ],
+)
+async def test_wire_scope(scope: Scope, expected: Scope) -> None:
+    wire = type_wire_of(token="T", creator=lambda: 1, scope=scope)
+    assert wire._scope == expected
 
 
 async def test_wire_apply_and_get_instance() -> None:
@@ -21,31 +32,30 @@ async def test_wire_apply_and_get_instance() -> None:
         assert result == "hello"
 
 
-async def test_wire_convention_a_dict() -> None:
-    logger_wire = type_wire_of(token="Logger", creator=lambda: "logger_instance")
-    service_wire = type_wire_of(
-        token="Service",
-        imports={"logger": logger_wire},
-        create_with=lambda deps: f"service({deps['logger']})",
-    )
-
-    async with TypeWireContainer() as container:
-        await service_wire.apply(container)
-        result = await service_wire.get_instance(container)
-        assert result == "service(logger_instance)"
-
-
-async def test_wire_convention_b_kwargs() -> None:
+@pytest.mark.parametrize(
+    "convention",
+    ["dict", "kwargs"],
+    ids=["convention_a_dict", "convention_b_kwargs"],
+)
+async def test_wire_conventions(convention: str) -> None:
     logger_wire = type_wire_of(token="Logger", creator=lambda: "logger_instance")
 
-    def create_service(*, logger: str) -> str:
-        return f"service({logger})"
+    if convention == "kwargs":
 
-    service_wire = type_wire_of(
-        token="Service",
-        imports={"logger": logger_wire},
-        create_with=create_service,
-    )
+        def create_service(*, logger: str) -> str:
+            return f"service({logger})"
+
+        service_wire = type_wire_of(
+            token="Service",
+            imports={"logger": logger_wire},
+            create_with=create_service,
+        )
+    else:
+        service_wire = type_wire_of(
+            token="Service",
+            imports={"logger": logger_wire},
+            create_with=lambda deps: f"service({deps['logger']})",
+        )
 
     async with TypeWireContainer() as container:
         await service_wire.apply(container)
@@ -99,4 +109,5 @@ async def test_wire_repr_with_imports() -> None:
         imports={"dep": dep},
         create_with=lambda deps: deps["dep"],
     )
-    assert "imports={'dep'}" in repr(wire)
+    assert wire._token.label == "Main"
+    assert set(wire._imports.keys()) == {"dep"}

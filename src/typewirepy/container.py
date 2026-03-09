@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 
 class TypeWireContainer:
+    """Default async container that stores factories, manages scopes, and handles teardown."""
+
     def __init__(self) -> None:
         self._factories: dict[_WireToken, Callable[[], Any]] = {}
         self._scopes: dict[_WireToken, Scope] = {}
@@ -26,10 +28,12 @@ class TypeWireContainer:
         self._generators: list[Any] = []
 
     async def register(self, token: _WireToken, factory: Callable[[], Any], scope: Scope) -> None:
+        """Store a factory and its scope for later resolution."""
         self._factories[token] = factory
         self._scopes[token] = scope
 
     async def resolve(self, token: _WireToken) -> Any:
+        """Resolve a token to its value, caching singletons and tracking generators."""
         if token not in self._factories:
             raise WireNotRegisteredError(token.label)
 
@@ -55,9 +59,11 @@ class TypeWireContainer:
         return result
 
     def has(self, token: _WireToken) -> bool:
+        """Return True if a factory has been registered for *token*."""
         return token in self._factories
 
     async def teardown(self) -> None:
+        """Finalize all tracked generators in reverse order and clear state."""
         for gen in reversed(self._generators):
             try:
                 if inspect.isasyncgen(gen):
@@ -66,7 +72,7 @@ class TypeWireContainer:
                 else:
                     with contextlib.suppress(StopIteration):
                         next(gen)
-            except Exception:
+            except Exception:  # noqa: PERF203
                 logger.exception("Error during teardown of generator %r", gen)
 
         self._generators.clear()
@@ -82,6 +88,7 @@ class TypeWireContainer:
 
     @classmethod
     def sync(cls) -> _SyncContextManager:
+        """Return a synchronous context manager wrapping a new container."""
         return _SyncContextManager(cls())
 
 

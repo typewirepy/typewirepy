@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import inspect
 from typing import TYPE_CHECKING, Any, TypeVar, overload
 
 if TYPE_CHECKING:
@@ -43,6 +42,10 @@ def type_wire_of(
     imports: dict[str, TypeWire[Any]] | None = None,
     scope: Scope = Scope.SINGLETON,
 ) -> TypeWire[Any]:
+    """Create a new wire.
+
+    Use *creator* for leaf dependencies or *create_with* + *imports* for composed ones.
+    """
     if creator is not None and create_with is not None:
         raise TypeWireError("Cannot specify both 'creator' and 'create_with'")
 
@@ -59,28 +62,7 @@ def type_wire_of(
 
     convention = "dict"
     if create_with is not None:
-        import_keys = set(resolved_imports.keys())
-
-        # Check for Convention B misalignment: if create_with has keyword-only
-        # params, they must match import keys exactly
-        try:
-            sig = inspect.signature(create_with)
-        except (ValueError, TypeError):
-            sig = None
-
-        if sig is not None:
-            kw_only = {
-                name
-                for name, p in sig.parameters.items()
-                if p.kind == inspect.Parameter.KEYWORD_ONLY
-            }
-            if kw_only and kw_only != import_keys:
-                raise TypeWireError(
-                    f"Convention B mismatch: create_with params {kw_only} "
-                    f"!= import keys {import_keys}"
-                )
-
-        convention = detect_convention(create_with, import_keys)
+        convention = detect_convention(create_with, set(resolved_imports.keys()), strict=True)
 
     wire_token = _WireToken(token)
 
@@ -95,4 +77,5 @@ def type_wire_of(
 
 
 def type_wire_group_of(wires: list[TypeWire[Any]]) -> TypeWireGroup:
+    """Create an immutable group from a list of wires."""
     return TypeWireGroup(wires)
