@@ -12,13 +12,16 @@ if TYPE_CHECKING:
 class TypeWireGroup:
     """Immutable ordered collection of wires, applied as a unit."""
 
-    __slots__ = ("_wires",)
+    __slots__ = ("_frozen", "_wires")
 
     def __init__(self, wires: list[TypeWire[Any]]) -> None:
-        object.__setattr__(self, "_wires", list(wires))
+        self._wires = list(wires)
+        self._frozen = True
 
     def __setattr__(self, name: str, value: Any) -> None:
-        raise AttributeError("TypeWireGroup instances are immutable")
+        if getattr(self, "_frozen", False):
+            raise AttributeError("TypeWireGroup instances are immutable")
+        object.__setattr__(self, name, value)
 
     def __delattr__(self, name: str) -> None:
         raise AttributeError("TypeWireGroup instances are immutable")

@@ -29,7 +29,15 @@ async def _maybe_await(value: Any) -> Any:
 class TypeWire(Generic[T]):
     """Immutable description of a dependency — its token, creator, imports, and scope."""
 
-    __slots__ = ("_convention", "_create_with", "_creator", "_imports", "_scope", "_token")
+    __slots__ = (
+        "_convention",
+        "_create_with",
+        "_creator",
+        "_frozen",
+        "_imports",
+        "_scope",
+        "_token",
+    )
 
     def __init__(
         self,
@@ -40,21 +48,24 @@ class TypeWire(Generic[T]):
         scope: Scope,
         convention: str,
     ) -> None:
-        object.__setattr__(self, "_token", token)
-        object.__setattr__(self, "_creator", creator)
-        object.__setattr__(self, "_create_with", create_with)
-        object.__setattr__(self, "_imports", imports)
-        object.__setattr__(self, "_scope", scope)
-        object.__setattr__(self, "_convention", convention)
+        self._token = token
+        self._creator = creator
+        self._create_with = create_with
+        self._imports = imports
+        self._scope = scope
+        self._convention = convention
+        self._frozen = True
 
     def __setattr__(self, name: str, value: Any) -> None:
-        raise AttributeError("TypeWire instances are immutable")
+        if getattr(self, "_frozen", False):
+            raise AttributeError("TypeWire instances are immutable")
+        object.__setattr__(self, name, value)
 
     def __delattr__(self, name: str) -> None:
         raise AttributeError("TypeWire instances are immutable")
 
     def __repr__(self) -> str:
-        import_keys = set(self._imports.keys()) if self._imports else set()
+        import_keys: set[str] = set(self._imports.keys()) if self._imports else set()
         scope_name = f"Scope.{self._scope.name}"
         return f"TypeWire(token={self._token.label!r}, scope={scope_name}, imports={import_keys!r})"
 
@@ -99,9 +110,9 @@ class TypeWire(Generic[T]):
                         result = wire._create_with(**resolved)
                     else:
                         result = wire._create_with(resolved)
-                    return await _maybe_await(result)  # type: ignore[return-value]
+                    return await _maybe_await(result)  # type: ignore[no-any-return]
                 else:
-                    return await _maybe_await(wire._creator())  # type: ignore[misc, return-value]
+                    return await _maybe_await(wire._creator())  # type: ignore[misc, no-any-return]
             except CreatorError:
                 raise
             except Exception as e:
@@ -113,7 +124,7 @@ class TypeWire(Generic[T]):
         """Resolve this wire's value from the container."""
         if not container.has(self._token):
             raise WireNotRegisteredError(self._token.label)
-        return await container.resolve(self._token)  # type: ignore[return-value]
+        return await container.resolve(self._token)  # type: ignore[no-any-return]
 
     def with_creator(
         self,

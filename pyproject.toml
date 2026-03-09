@@ -81,6 +81,8 @@ disallow_untyped_defs = true
 pythonVersion = "3.10"
 typeCheckingMode = "strict"
 reportMissingTypeStubs = false
+reportPrivateUsage = false
+reportUnusedClass = false
 
 [tool.ty.rules]
 # ty configuration (Astral's type checker, in beta)
