@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from typewirepy import Scope, TypeWireContainer, type_wire_group_of, type_wire_of
+from typewirepy import TRANSIENT, TypeWireContainer, type_wire_group_of, type_wire_of
 
 
 async def test_app_bootstrap_multi_layer() -> None:
@@ -114,7 +114,7 @@ async def test_transient_singleton_interaction() -> None:
         token="Transient",
         imports={"shared": singleton_wire},
         create_with=make_transient,
-        scope=Scope.TRANSIENT,
+        scope=TRANSIENT,
     )
 
     async with TypeWireContainer() as container:

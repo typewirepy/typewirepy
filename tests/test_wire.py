@@ -2,21 +2,21 @@ from __future__ import annotations
 
 import pytest
 
-from typewirepy import Scope, TypeWire, TypeWireContainer, type_wire_of
+from typewirepy import SINGLETON, TRANSIENT, Scope, TypeWire, TypeWireContainer, type_wire_of
 
 
 async def test_wire_creation_with_creator() -> None:
     wire: TypeWire[str] = type_wire_of(token="Greeting", creator=lambda: "hello")
     assert wire._token.label == "Greeting"
-    assert wire._scope == Scope.SINGLETON
+    assert wire._scope == SINGLETON
     assert wire._imports == {}
 
 
 @pytest.mark.parametrize(
     ("scope", "expected"),
     [
-        (Scope.SINGLETON, Scope.SINGLETON),
-        (Scope.TRANSIENT, Scope.TRANSIENT),
+        (SINGLETON, SINGLETON),
+        (TRANSIENT, TRANSIENT),
     ],
 )
 async def test_wire_scope(scope: Scope, expected: Scope) -> None:

@@ -75,7 +75,7 @@ class TypeWireContainer:
                 else:
                     with contextlib.suppress(StopIteration):
                         next(gen)  # type: ignore[call-overload]
-            except Exception:  # noqa: PERF203
+            except Exception:
                 logger.exception("Error during teardown of generator %r", gen)
 
         self._generators.clear()

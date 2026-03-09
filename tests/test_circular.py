@@ -4,7 +4,7 @@ import pytest
 
 from typewirepy import CircularDependencyError, TypeWireContainer
 from typewirepy._token import _WireToken
-from typewirepy.scope import Scope
+from typewirepy.scope import SINGLETON
 from typewirepy.wire import TypeWire
 
 
@@ -18,7 +18,7 @@ def _make_circular_pair() -> tuple[TypeWire[str], TypeWire[str]]:
         creator=None,
         create_with=lambda deps: f"B({deps['a']})",
         imports={},
-        scope=Scope.SINGLETON,
+        scope=SINGLETON,
         convention="dict",
     )
 
@@ -27,7 +27,7 @@ def _make_circular_pair() -> tuple[TypeWire[str], TypeWire[str]]:
         creator=None,
         create_with=lambda deps: f"A({deps['b']})",
         imports={"b": wire_b},
-        scope=Scope.SINGLETON,
+        scope=SINGLETON,
         convention="dict",
     )
 
@@ -55,7 +55,7 @@ async def test_a_b_c_cycle() -> None:
         creator=None,
         create_with=lambda deps: deps["a"],
         imports={},
-        scope=Scope.SINGLETON,
+        scope=SINGLETON,
         convention="dict",
     )
     wire_b: TypeWire[str] = TypeWire(
@@ -63,7 +63,7 @@ async def test_a_b_c_cycle() -> None:
         creator=None,
         create_with=lambda deps: deps["c"],
         imports={"c": wire_c},
-        scope=Scope.SINGLETON,
+        scope=SINGLETON,
         convention="dict",
     )
     wire_a: TypeWire[str] = TypeWire(
@@ -71,7 +71,7 @@ async def test_a_b_c_cycle() -> None:
         creator=None,
         create_with=lambda deps: deps["b"],
         imports={"b": wire_b},
-        scope=Scope.SINGLETON,
+        scope=SINGLETON,
         convention="dict",
     )
     object.__setattr__(wire_c, "_imports", {"a": wire_a})
@@ -88,7 +88,7 @@ async def test_self_reference() -> None:
         creator=None,
         create_with=lambda deps: deps["me"],
         imports={},
-        scope=Scope.SINGLETON,
+        scope=SINGLETON,
         convention="dict",
     )
     object.__setattr__(wire, "_imports", {"me": wire})

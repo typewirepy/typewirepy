@@ -3,8 +3,9 @@ from __future__ import annotations
 import pytest
 
 from typewirepy import (
+    SINGLETON,
+    TRANSIENT,
     CreatorError,
-    Scope,
     TypeWireContainer,
     WireNotRegisteredError,
     type_wire_of,
@@ -32,7 +33,7 @@ async def test_singleton_caching() -> None:
         call_count += 1
         return [call_count]
 
-    wire = type_wire_of(token="Single", creator=make, scope=Scope.SINGLETON)
+    wire = type_wire_of(token="Single", creator=make, scope=SINGLETON)
     async with TypeWireContainer() as container:
         await wire.apply(container)
         a = await wire.get_instance(container)
@@ -49,7 +50,7 @@ async def test_transient_fresh_instances() -> None:
         call_count += 1
         return [call_count]
 
-    wire = type_wire_of(token="Trans", creator=make, scope=Scope.TRANSIENT)
+    wire = type_wire_of(token="Trans", creator=make, scope=TRANSIENT)
     async with TypeWireContainer() as container:
         await wire.apply(container)
         a = await wire.get_instance(container)
