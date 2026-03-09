@@ -14,6 +14,6 @@ def test_fastapi_integration_import_fails_gracefully() -> None:
     """Explicitly importing the fastapi integration should only fail if fastapi is missing."""
     # This test just verifies the import works when fastapi IS available
     # (since fastapi is in our test deps)
-    from typewirepy.integrations.fastapi import wire_depends
+    from typewirepy.integrations.fastapi import WireDepends
 
-    assert callable(wire_depends)
+    assert callable(WireDepends)

@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from typewirepy.protocols import ContainerAdapter
 from typewirepy.wire import TypeWire, _check_no_running_loop
-
-if TYPE_CHECKING:
-    from typewirepy.protocols import ContainerAdapter
 
 
 class TypeWireGroup:

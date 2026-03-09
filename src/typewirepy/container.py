@@ -4,16 +4,12 @@ import asyncio
 import contextlib
 import inspect
 import logging
-from typing import TYPE_CHECKING, Any, TypeVar, cast
+from collections.abc import Awaitable, Callable
+from typing import Any, TypeVar, cast
 
-from typewirepy.scope import SINGLETON, Scope
-
-if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
-
-    from typewirepy._token import _WireToken
-
+from typewirepy._token import _WireToken
 from typewirepy.errors import WireNotRegisteredError
+from typewirepy.scope import SINGLETON, Scope
 
 T = TypeVar("T")
 

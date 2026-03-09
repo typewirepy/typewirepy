@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, TypeVar, overload
-
-if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any, TypeVar, overload
 
 from typewirepy._introspect import detect_convention
 from typewirepy._token import _WireToken
