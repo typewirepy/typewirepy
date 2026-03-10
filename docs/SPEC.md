@@ -105,7 +105,7 @@ transient_wire: TypeWire[Logger] = type_wire_of(
 user_service_wire: TypeWire[UserService] = type_wire_of(
     token="UserService",
     imports={"logger": logger_wire},
-    create_with=lambda deps: UserService(deps["logger"]),
+    create_with=lambda *, logger: UserService(logger),
 )
 ```
 
@@ -117,10 +117,13 @@ Python does not.
 **Resolution:** Support two calling conventions, detected via `inspect.signature`:
 
 ```python
-# Convention A — Single dict parameter (for lambdas)
+# Convention B — Keyword-expanded (preferred, works with lambdas too)
+create_with=lambda *, logger: UserService(logger)
+
+# Convention A — Single dict parameter (legacy)
 create_with=lambda deps: UserService(deps["logger"])
 
-# Convention B — Keyword-expanded (for named functions)
+# Named function with keyword params
 def create_user_service(*, logger: Logger) -> UserService:
     return UserService(logger)
 
@@ -382,7 +385,7 @@ logger_wire: TypeWire[Logger] = type_wire_of(token="Logger", creator=lambda: Log
 service_wire: TypeWire[Service] = type_wire_of(
     token="Service",
     imports={"logger": logger_wire},
-    create_with=lambda deps: Service(deps["logger"]),
+    create_with=lambda *, logger: Service(logger),
 )
 app_wires = type_wire_group_of([logger_wire, service_wire])
 ```
@@ -519,7 +522,7 @@ config_wire: TypeWire[AppConfig] = type_wire_of(
 repo_wire: TypeWire[UserRepository] = type_wire_of(
     token="UserRepository",
     imports={"config": config_wire},
-    create_with=lambda deps: UserRepository(config=deps["config"]),
+    create_with=lambda *, config: UserRepository(config=config),
 )
 ```
 

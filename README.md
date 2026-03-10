@@ -40,7 +40,7 @@ config_wire = type_wire_of(token="Config", creator=lambda: {"db_url": "sqlite://
 db_wire = type_wire_of(
     token="Database",
     imports={"config": config_wire},
-    create_with=lambda deps: f"db({deps['config']['db_url']})",
+    create_with=lambda *, config: f"db({config['db_url']})",
 )
 
 app_wires = type_wire_group_of([config_wire, db_wire])
@@ -75,13 +75,13 @@ A **wire** is an immutable description of a dependency — its token (name), how
 
 ### Imports
 
-Imports declare which other wires a composed wire depends on. They're passed as a `dict[str, TypeWire]` and delivered to `create_with` as a dict (Convention A) or as keyword arguments (Convention B):
+Imports declare which other wires a composed wire depends on. They're passed as a `dict[str, TypeWire]` and delivered to `create_with` as keyword arguments:
 
 ```python
-# Convention A: dict parameter
-type_wire_of(token="Svc", imports={"db": db_wire}, create_with=lambda deps: deps["db"])
+# Keyword-only parameters (works with lambdas too)
+type_wire_of(token="Svc", imports={"db": db_wire}, create_with=lambda *, db: Service(db))
 
-# Convention B: keyword-only parameters
+# Named function
 def create_svc(*, db: Database) -> Service: ...
 type_wire_of(token="Svc", imports={"db": db_wire}, create_with=create_svc)
 ```
