@@ -1,18 +1,54 @@
 name: Publish to PyPI
 
 on:
-  push:
-    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        type: string
+        required: true
+        description: "Version to publish (e.g. 0.2.0, 0.2.0.dev1)"
+      dry-run:
+        type: boolean
+        default: true
+        description: "Dry run (build only, skip publish)"
+
+concurrency:
+  group: publish-${{ github.event.inputs.version }}
+  cancel-in-progress: false
 
 jobs:
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+
   publish:
-    name: Build & Publish
+    name: Publish
+    needs: [ci]
     runs-on: ubuntu-latest
-    environment: pypi
+    environment: ${{ inputs['dry-run'] == false && 'pypi' || 'dry-run' }}
     permissions:
       id-token: write
+      contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Validate version format
+        run: |
+          VERSION="${{ inputs.version }}"
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(\.dev[0-9]+)?$'; then
+            echo "::error::Invalid version format: $VERSION (expected X.Y.Z or X.Y.Z.devN)"
+            exit 1
+          fi
+
+      - name: Check tag doesn't already exist
+        run: |
+          if git rev-parse "v${{ inputs.version }}" >/dev/null 2>&1; then
+            echo "::error::Tag v${{ inputs.version }} already exists"
+            exit 1
+          fi
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -20,8 +56,53 @@ jobs:
       - name: Set up Python
         run: uv python install 3.12
 
+      - name: Patch version
+        run: |
+          python3 -c "
+          import re, pathlib
+          p = pathlib.Path('pyproject.toml')
+          text = p.read_text()
+          text = re.sub(r'^version\s*=\s*\"[^\"]*\"', 'version = \"${{ inputs.version }}\"', text, count=1, flags=re.MULTILINE)
+          p.write_text(text)
+          "
+
       - name: Build package
         run: uv build
 
+      - name: Verify package version
+        run: |
+          PKG_VERSION=$(python3 -c "
+          import zipfile, glob, re
+          whl = glob.glob('dist/*.whl')[0]
+          with zipfile.ZipFile(whl) as z:
+              meta = [n for n in z.namelist() if n.endswith('METADATA')][0]
+              text = z.read(meta).decode()
+              print(re.search(r'^Version: (.+)$', text, re.MULTILINE).group(1))
+          ")
+          if [ "$PKG_VERSION" != "${{ inputs.version }}" ]; then
+            echo "::error::Built package version ($PKG_VERSION) doesn't match input (${{ inputs.version }})"
+            exit 1
+          fi
+
       - name: Publish to PyPI
+        if: inputs['dry-run'] == false
         run: uv publish
+
+      - name: Create tag
+        if: inputs['dry-run'] == false
+        run: |
+          git tag "v${{ inputs.version }}"
+          git push origin "v${{ inputs.version }}"
+
+      - name: Create GitHub Release
+        if: inputs['dry-run'] == false
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ inputs.version }}"
+          generate_release_notes: true
+
+      - name: Dry run summary
+        if: inputs['dry-run'] == true
+        run: |
+          echo "::notice::Dry run complete — built v${{ inputs.version }} successfully"
+          echo "::notice::To publish for real, re-run with dry-run=false"

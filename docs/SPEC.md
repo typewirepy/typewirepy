@@ -611,34 +611,37 @@ a container can produce exactly the callable that `Depends()` expects.
 ```python
 # typewirepy/integrations/fastapi.py (optional submodule)
 
-from typing import Annotated, Callable, TypeVar
-from fastapi import Depends
-from typewirepy import TypeWire, TypeWireContainer
+from typing import Any, TypeVar
+from fastapi import Depends, Request
+from typewirepy.wire import TypeWire
 
 T = TypeVar("T")
 
-def wire_depends(wire: TypeWire[T], get_container: Callable[[], TypeWireContainer]) -> T:
-    """Create a FastAPI-compatible dependency from a TypeWire.
+CONTAINER_ATTR = "typewire_container"
 
-    Accepts a callable that returns a container (not a direct container reference)
-    so the container can be swapped at test time without breaking closures.
+def WireDepends(wire: TypeWire[T]) -> Any:
+    """FastAPI dependency that resolves a wire from the request's container.
+
+    The container must be stored on ``app.state.typewire_container``
+    (e.g. during the FastAPI lifespan).
 
     Usage:
-        container = TypeWireContainer()
-
-        def get_container() -> TypeWireContainer:
-            return container
-
         @app.get("/users/{user_id}")
         async def get_user(
             user_id: str,
-            service: Annotated[UserService, Depends(wire_depends(user_service_wire, get_container))],
+            service: UserService = WireDepends(user_service_wire),
         ):
             return await service.get_by_id(user_id)
     """
-    async def _resolver() -> T:
-        return await wire.get_instance(get_container())
-    return _resolver
+    async def _resolver(request: Request) -> T:
+        container = getattr(request.app.state, CONTAINER_ATTR, None)
+        if container is None:
+            raise RuntimeError(
+                f"No TypeWireContainer on app.state.{CONTAINER_ATTR}. "
+                "Set it during your FastAPI lifespan."
+            )
+        return await wire.get_instance(container)
+    return Depends(_resolver)
 ```
 
 This is intentionally minimal — a single function, no magic.
@@ -646,49 +649,38 @@ This is intentionally minimal — a single function, no magic.
 ### 10.2 Full Usage Pattern
 
 ```python
-from fastapi import FastAPI, Depends
-from typing import Annotated
+from fastapi import FastAPI
 from contextlib import asynccontextmanager
 
 from typewirepy import TypeWireContainer
-from typewirepy.integrations.fastapi import wire_depends
+from typewirepy.integrations.fastapi import WireDepends
 
 from .wires import app_wires, user_service_wire, logger_wire
 from .types import UserService, Logger
 
 # ── Container lifecycle tied to FastAPI lifespan ──
 
-container = TypeWireContainer()
-
-def get_container() -> TypeWireContainer:
-    return container
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await app_wires.apply(container)
-    yield
-    await container.teardown()
+    async with TypeWireContainer() as container:
+        await app_wires.apply(container)
+        app.state.typewire_container = container
+        yield
 
 app = FastAPI(lifespan=lifespan)
-
-
-# ── Define reusable Annotated aliases (idiomatic FastAPI) ──
-
-UserServiceDep = Annotated[UserService, Depends(wire_depends(user_service_wire, get_container))]
-LoggerDep = Annotated[Logger, Depends(wire_depends(logger_wire, get_container))]
 
 
 # ── Routes ──
 
 @app.get("/users/{user_id}")
-async def get_user(user_id: str, service: UserServiceDep):
+async def get_user(user_id: str, service: UserService = WireDepends(user_service_wire)):
     user = await service.get_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404)
     return user
 
 @app.get("/health")
-async def health(logger: LoggerDep):
+async def health(logger: Logger = WireDepends(logger_wire)):
     logger.log("Health check")
     return {"status": "ok"}
 ```
@@ -700,9 +692,9 @@ two options:
 
 **Option A — Use TypeWire overrides (recommended):**
 
-Replace the module-level container before the test. Because `wire_depends`
-calls `get_container()` at request time (not import time), swapping the
-module-level `container` variable is sufficient.
+Override `app.state.typewire_container` with a test container before making
+requests. Because `WireDepends` reads from `request.app.state` at request
+time, swapping the container is sufficient.
 
 ```python
 import pytest
@@ -711,21 +703,20 @@ from httpx import AsyncClient, ASGITransport
 @pytest.fixture
 async def test_app():
     """App with mocked dependencies."""
+    from myapp.main import app
+
     test_container = TypeWireContainer()
     mocked = app_wires.with_extra_wires([
         user_service_wire.with_creator(lambda: MockUserService())
     ])
     await mocked.apply(test_container)
 
-    # Swap the module-level container — get_container() picks up the change
-    import myapp.main as main_module
-    original = main_module.container
-    main_module.container = test_container
+    # Override the container on app.state
+    app.state.typewire_container = test_container
 
-    yield main_module.app
+    yield app
 
     await test_container.teardown()
-    main_module.container = original
 
 async def test_get_user(test_app):
     async with AsyncClient(
@@ -738,7 +729,7 @@ async def test_get_user(test_app):
 
 ### 10.4 Why This Works Well
 
-The key insight is that `wire_depends` is just a thin adapter — it doesn't
+The key insight is that `WireDepends` is just a thin adapter — it doesn't
 take over FastAPI's DI system, it plugs into it. This means:
 
 - FastAPI's own dependency caching and `yield`-based cleanup still work normally for non-TypeWire dependencies. TypeWire dependencies are resolved from the app-level container and are not request-scoped.
@@ -915,7 +906,7 @@ typewirepy/
 │       ├── _introspect.py   # inspect-based creator signature detection
 │       └── integrations/    # optional framework adapters (no extra deps)
 │           ├── __init__.py
-│           └── fastapi.py   # wire_depends() adapter
+│           └── fastapi.py   # WireDepends() adapter
 ├── tests/
 │   ├── test_wire.py         # TypeWire creation, apply, get_instance
 │   ├── test_group.py        # TypeWireGroup, with_extra_wires
@@ -938,9 +929,9 @@ typewirepy/
 - **Python:** `>= 3.10` (for `X | Y` union syntax, `match` statements if needed)
 - **Runtime dependencies:** None (stdlib only)
 - **Optional dependencies:** `typewirepy[fastapi]` installs `fastapi` for the
-  integration module. The integration submodule uses lazy imports so it never
-  breaks if FastAPI is absent — it only fails at import time if you explicitly
-  `from typewirepy.integrations.fastapi import wire_depends`.
+  integration module. The integration submodule imports FastAPI unconditionally,
+  so importing it without FastAPI installed raises `ImportError` — expected
+  behavior for an optional integration.
 - **Dev dependencies:** `pytest`, `pytest-asyncio`, `mypy`, `pyright`, `ruff`,
   `fastapi`, `httpx` (for integration tests)
 
@@ -958,7 +949,7 @@ typewirepy/
 8. **`container.py`** — `TypeWireContainer` with context manager + teardown
 9. **`group.py`** — `TypeWireGroup` + `type_wire_group_of`
 10. **`__init__.py`** — public API exports
-11. **`integrations/fastapi.py`** — `wire_depends()` adapter
+11. **`integrations/fastapi.py`** — `WireDepends()` adapter
 12. **Tests** — written alongside each module, run with `pytest-asyncio`
 
 ---
@@ -1098,6 +1089,6 @@ Final checklist confirming alignment with Python community conventions.
 | pytest-friendly | ✅ | Fixtures map naturally to wire override pattern |
 | Dataclass-compatible | ✅ | No special handling needed |
 | Distributed-safe (Spark/Ray) | ✅ | Wires are module-level constants imported normally; containers are created locally per-process. No serialization of wires or containers is needed or supported |
-| FastAPI integration | ✅ | `wire_depends()` adapter, zero coupling in core |
+| FastAPI integration | ✅ | `WireDepends()` adapter, zero coupling in core |
 | Thread safety documented | ✅ | Explicitly not thread-safe; documented |
 | `__repr__` for debugging | ✅ | Meaningful repr on all public types |

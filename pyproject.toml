@@ -101,7 +101,6 @@ select = [
     "UP",   # pyupgrade
     "B",    # bugbear
     "SIM",  # simplify
-    "TC",   # type-checking imports
     "RUF",  # ruff-specific
     "PT",   # pytest style
     "PIE",  # misc. lints

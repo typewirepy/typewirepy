@@ -3,17 +3,14 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
-from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast, overload
+from collections.abc import Awaitable, Callable
+from typing import Any, Generic, TypeVar, cast, overload
 
 from typewirepy._introspect import detect_creator_arity
+from typewirepy._token import _WireToken
 from typewirepy.errors import CircularDependencyError, CreatorError, WireNotRegisteredError
-
-if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
-
-    from typewirepy._token import _WireToken
-    from typewirepy.protocols import ContainerAdapter
-    from typewirepy.scope import Scope
+from typewirepy.protocols import ContainerAdapter
+from typewirepy.scope import Scope
 
 T = TypeVar("T")
 _R = TypeVar("_R")

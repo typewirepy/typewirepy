@@ -14,7 +14,7 @@ Lightweight, container-agnostic dependency injection for Python — typed, expli
 - **Immutable wires** — safe to share across threads and modules
 - **Scopes** — singleton (default) and transient
 - **Generator lifecycle** — `yield`-based creators with automatic cleanup
-- **FastAPI integration** — `wire_depends()` bridges wires to FastAPI's `Depends()`
+- **FastAPI integration** — `WireDepends()` bridges wires to FastAPI's `Depends()`
 
 ## Installation
 
@@ -109,25 +109,26 @@ test_group = group.with_extra_wires([service_wire.with_creator(lambda _: mock_sv
 ## FastAPI Integration
 
 ```python
-from fastapi import Depends, FastAPI
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
 from typewirepy import TypeWireContainer, type_wire_group_of, type_wire_of
-from typewirepy.integrations.fastapi import wire_depends
+from typewirepy.integrations.fastapi import WireDepends
 
 db_wire = type_wire_of(token="DB", creator=lambda: "db_connection")
 app_wires = type_wire_group_of([db_wire])
 
-container: TypeWireContainer
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    async with TypeWireContainer() as container:
+        await app_wires.apply(container)
+        app.state.typewire_container = container
+        yield
 
-app = FastAPI()
-
-@app.on_event("startup")
-async def startup():
-    global container
-    container = TypeWireContainer()
-    await app_wires.apply(container)
+app = FastAPI(lifespan=lifespan)
 
 @app.get("/")
-async def root(db: str = Depends(wire_depends(db_wire, lambda: container))):
+async def root(db: str = WireDepends(db_wire)):
     return {"db": db}
 ```
 

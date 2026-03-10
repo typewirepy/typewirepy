@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, TypeVar, runtime_checkable
+from collections.abc import Awaitable, Callable
+from typing import Protocol, TypeVar, runtime_checkable
 
-if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
-
-    from typewirepy._token import _WireToken
-    from typewirepy.scope import Scope
+from typewirepy._token import _WireToken
+from typewirepy.scope import Scope
 
 T = TypeVar("T")
 
