@@ -143,25 +143,49 @@ class TypeWire(Generic[T]):
         if arity == 2:
             original_wire = self
 
-            def wrapped_creator() -> Awaitable[T]:
-                original_factory = original_wire._creator or original_wire._create_with
+            if original_wire._create_with is not None:
+                orig_create_with = original_wire._create_with
+                orig_convention = original_wire._convention
 
-                async def _call_with_original() -> T:
-                    async def original_caller() -> T:
-                        return await _maybe_await(original_factory())  # type: ignore[misc]
+                def new_create_with(deps: dict[str, object]) -> Awaitable[T]:
+                    async def _call_with_original() -> T:
+                        async def original_caller() -> T:
+                            if orig_convention == "kwargs":
+                                return cast("T", await _maybe_await(orig_create_with(**deps)))
+                            else:
+                                return cast("T", await _maybe_await(orig_create_with(deps)))
 
-                    return cast("T", await _maybe_await(fn(None, original_caller)))
+                        return cast("T", await _maybe_await(fn(None, original_caller)))
 
-                return _call_with_original()
+                    return _call_with_original()
 
-            return TypeWire(
-                token=self._token,
-                creator=wrapped_creator,
-                create_with=None,
-                imports={},
-                scope=self._scope,
-                convention="dict",
-            )
+                return TypeWire(
+                    token=self._token,
+                    creator=None,
+                    create_with=new_create_with,
+                    imports=dict(self._imports),
+                    scope=self._scope,
+                    convention="dict",
+                )
+            else:
+
+                def wrapped_creator() -> Awaitable[T]:
+                    async def _call_with_original() -> T:
+                        async def original_caller() -> T:
+                            return await _maybe_await(original_wire._creator())  # type: ignore[misc]
+
+                        return cast("T", await _maybe_await(fn(None, original_caller)))
+
+                    return _call_with_original()
+
+                return TypeWire(
+                    token=self._token,
+                    creator=wrapped_creator,
+                    create_with=None,
+                    imports={},
+                    scope=self._scope,
+                    convention="dict",
+                )
         else:
 
             def one_arg_creator() -> T | Awaitable[T]:
