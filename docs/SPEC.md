@@ -190,15 +190,20 @@ No gaps. Maps 1:1.
 
 ```python
 async def spy_logger(ctx, original_creator):
-    original = await original_creator(ctx)
+    original = await original_creator()  # zero-arg closure
     original.log = MagicMock(wraps=original.log)
     return original
 
 logger_wire.with_creator(spy_logger)
 ```
 
-The `with_creator` callback supports both `(ctx)` and `(ctx, original_creator)`
-forms — detected via arity inspection.
+The `with_creator` callback supports both 1-arg `(ctx)` and 2-arg
+`(ctx, original_creator)` forms — detected via arity inspection.
+
+- `ctx` is always `None` (Python has no TS-style context object).
+- `original_creator` is a zero-arg async callable — a closure that captures
+  resolved deps internally, so callers simply `await original_creator()`.
+- Works on wires using either `creator` or `create_with` (including imports).
 
 ### 3.7 `TypeWireContainer` — Direct mapping
 

@@ -103,7 +103,18 @@ await group.apply(container)
 Override wires for testing with `with_extra_wires()`:
 
 ```python
-test_group = group.with_extra_wires([service_wire.with_creator(lambda _: mock_svc)])
+test_group = group.with_extra_wires([service_wire.with_creator(lambda _ctx: mock_svc)])
+```
+
+Use the 2-arg form of `with_creator` to spy on or decorate the original creator:
+
+```python
+async def spy(ctx, original_creator):
+    instance = await original_creator()  # zero-arg closure
+    instance.log = MagicMock(wraps=instance.log)
+    return instance
+
+test_group = group.with_extra_wires([service_wire.with_creator(spy)])
 ```
 
 ## FastAPI Integration
