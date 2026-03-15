@@ -76,6 +76,21 @@ class TypeWire(Generic[T]):
             f"TypeWire(token={self._token.label!r}, scope={self._scope!r}, imports={import_keys!r})"
         )
 
+    @property
+    def token_label(self) -> str:
+        """The string label identifying this wire's token."""
+        return self._token.label
+
+    @property
+    def imports(self) -> dict[str, TypeWire[Any]]:
+        """Read-only copy of this wire's import dependencies."""
+        return dict(self._imports)
+
+    @property
+    def scope(self) -> Scope:
+        """This wire's scope ("singleton" or "transient")."""
+        return self._scope
+
     async def apply(
         self,
         container: ContainerAdapter,

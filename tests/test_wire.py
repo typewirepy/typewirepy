@@ -102,6 +102,32 @@ async def test_with_creator_preserves_token_identity() -> None:
     assert wire._token is overridden._token
 
 
+async def test_token_label() -> None:
+    wire = type_wire_of(token="MyService", creator=lambda: "svc")
+    assert wire.token_label == "MyService"
+
+
+async def test_imports_property() -> None:
+    dep = type_wire_of(token="Dep", creator=lambda: 1)
+    wire = type_wire_of(
+        token="Main",
+        imports={"dep": dep},
+        create_with=lambda deps: deps["dep"],
+    )
+    imports = wire.imports
+    assert imports == {"dep": dep}
+    # Mutating the returned dict must not affect the wire
+    imports["extra"] = dep
+    assert "extra" not in wire.imports
+
+
+async def test_scope_property() -> None:
+    wire_s = type_wire_of(token="S", creator=lambda: 1, scope=SINGLETON)
+    wire_t = type_wire_of(token="T", creator=lambda: 1, scope=TRANSIENT)
+    assert wire_s.scope == SINGLETON
+    assert wire_t.scope == TRANSIENT
+
+
 async def test_wire_repr_with_imports() -> None:
     dep = type_wire_of(token="Dep", creator=lambda: 1)
     wire = type_wire_of(
