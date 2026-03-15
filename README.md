@@ -117,6 +117,25 @@ async def spy(ctx, original_creator):
 test_group = group.with_extra_wires([service_wire.with_creator(spy)])
 ```
 
+### Introspection
+
+Every wire exposes read-only properties for inspecting the dependency graph at runtime:
+
+```python
+wire = type_wire_of(
+    token="UserService",
+    imports={"db": db_wire},
+    create_with=lambda *, db: UserService(db),
+    scope=Scope.TRANSIENT,
+)
+
+wire.token_label  # "UserService"
+wire.scope        # Scope.TRANSIENT
+wire.imports      # {"db": TypeWire(...)}  (shallow copy — safe to mutate)
+```
+
+Use these to build dependency graphs, generate documentation, or debug resolution order.
+
 ## FastAPI Integration
 
 ```python

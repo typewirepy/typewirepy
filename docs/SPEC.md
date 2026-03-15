@@ -141,6 +141,12 @@ This is implemented in `_introspect.py`.
 T = TypeVar("T")
 
 class TypeWire(Generic[T]):
+    # Properties (read-only)
+    token_label: str                        # the wire's string label
+    imports: dict[str, TypeWire[Any]]       # shallow copy of import dependencies
+    scope: Scope                            # SINGLETON or TRANSIENT
+
+    # Methods
     async def apply(self, container: "ContainerAdapter") -> None: ...
     async def get_instance(self, container: "ContainerAdapter") -> T: ...
     def with_creator(self, creator: Callable[..., T | Awaitable[T]]) -> "TypeWire[T]": ...
@@ -1050,6 +1056,17 @@ TypeWire(token='UserService', scope=Scope.SINGLETON, imports={'logger': TypeWire
 
 >>> type_wire_group_of([logger_wire, user_service_wire])
 TypeWireGroup(wires=[TypeWire(token='Logger', ...), TypeWire(token='UserService', ...)])
+```
+
+Public introspection properties (`token_label`, `imports`, `scope`) provide
+programmatic access to the same data shown in `__repr__`, enabling users to
+build dependency graphs, generate documentation, or debug resolution without
+reaching into private attributes.
+
+```python
+wire.token_label  # "UserService"
+wire.scope        # Scope.SINGLETON
+wire.imports      # {"logger": TypeWire(...)}  — shallow copy, safe to mutate
 ```
 
 ### 17.5 Mutual Exclusivity of `creator` and `create_with`
