@@ -77,3 +77,11 @@ def type_wire_of(
 def type_wire_group_of(wires: list[TypeWire[Any]]) -> TypeWireGroup:
     """Create an immutable group from a list of wires."""
     return TypeWireGroup(wires)
+
+
+def combine_wire_groups(groups: list[TypeWireGroup]) -> TypeWireGroup:
+    """Flatten multiple groups into a single group."""
+    wires: list[TypeWire[Any]] = []
+    for group in groups:
+        wires.extend(group.wires)
+    return TypeWireGroup(wires)

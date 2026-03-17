@@ -170,7 +170,7 @@ logger_wire: TypeWire[Logger] = type_wire_of(
 logger_wire = type_wire_of(token="Logger", creator=lambda: Logger())
 ```
 
-### 3.4 `type_wire_group_of` — Direct mapping
+### 3.4 `type_wire_group_of` and `combine_wire_groups`
 
 ```python
 wire_group = type_wire_group_of([
@@ -180,18 +180,35 @@ wire_group = type_wire_group_of([
 await wire_group.apply(container)
 ```
 
-No gaps. Maps 1:1.
+`combine_wire_groups` flattens multiple groups into a single group:
 
-### 3.5 `TypeWireGroup.with_extra_wires` — Direct mapping
+```python
+infra_wires = type_wire_group_of([logger_wire, db_wire])
+domain_wires = type_wire_group_of([user_service_wire, order_service_wire])
+
+all_wires = combine_wire_groups([infra_wires, domain_wires])
+await all_wires.apply(container)
+```
+
+### 3.5 `TypeWireGroup` — properties and methods
 
 ```python
 test_wires = type_wire_group_of([logger_wire, user_service_wire])
+
+# Read-only access to the group's wires (returns a shallow copy)
+test_wires.wires  # [TypeWire(...), TypeWire(...)]
+
+# Override specific wires for testing
 mocked_wires = test_wires.with_extra_wires([
     user_service_wire.with_creator(lambda: mock_user_service)
 ])
-```
 
-No gaps. Maps 1:1.
+# Resolve all wires concurrently
+instances = await test_wires.get_all_instances(container)
+
+# Sync variant
+instances = test_wires.get_all_instances_sync(container)
+```
 
 ### 3.6 `with_creator` with access to original creator
 

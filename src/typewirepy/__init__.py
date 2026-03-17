@@ -1,5 +1,5 @@
 from typewirepy.container import TypeWireContainer
-from typewirepy.core import type_wire_group_of, type_wire_of
+from typewirepy.core import combine_wire_groups, type_wire_group_of, type_wire_of
 from typewirepy.errors import (
     CircularDependencyError,
     CreatorError,
@@ -30,6 +30,7 @@ __all__ = [
     "TypeWireGroup",
     "WireNotRegisteredError",
     "WireToken",
+    "combine_wire_groups",
     "type_wire_group_of",
     "type_wire_of",
 ]

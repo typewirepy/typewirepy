@@ -28,6 +28,11 @@ class TypeWireGroup:
         labels = [w._token.label for w in self._wires]
         return f"TypeWireGroup(wires={labels!r})"
 
+    @property
+    def wires(self) -> list[TypeWire[Any]]:
+        """Read-only copy of this group's wires."""
+        return list(self._wires)
+
     async def apply(self, container: ContainerAdapter) -> None:
         for wire in self._wires:
             await wire.apply(container)
@@ -35,6 +40,15 @@ class TypeWireGroup:
     def with_extra_wires(self, wires: list[TypeWire[Any]]) -> TypeWireGroup:
         return TypeWireGroup(self._wires + wires)
 
+    async def get_all_instances(self, container: ContainerAdapter) -> list[Any]:
+        """Resolve all wires in this group concurrently."""
+        return list(await asyncio.gather(*(wire.get_instance(container) for wire in self._wires)))
+
     def apply_sync(self, container: ContainerAdapter) -> None:
         _check_no_running_loop()
         asyncio.run(self.apply(container))
+
+    def get_all_instances_sync(self, container: ContainerAdapter) -> list[Any]:
+        """Resolve all wires in this group synchronously."""
+        _check_no_running_loop()
+        return asyncio.run(self.get_all_instances(container))

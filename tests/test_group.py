@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from typewirepy import CreatorError, TypeWireContainer, type_wire_group_of, type_wire_of
+from typewirepy import (
+    CreatorError,
+    TypeWireContainer,
+    combine_wire_groups,
+    type_wire_group_of,
+    type_wire_of,
+)
 
 
 async def test_group_apply() -> None:
@@ -41,6 +47,73 @@ def test_group_repr() -> None:
     w2 = type_wire_of(token="B", creator=lambda: 2)
     group = type_wire_group_of([w1, w2])
     assert repr(group) == "TypeWireGroup(wires=['A', 'B'])"
+
+
+def test_wires_property() -> None:
+    w1 = type_wire_of(token="A", creator=lambda: 1)
+    w2 = type_wire_of(token="B", creator=lambda: 2)
+    group = type_wire_group_of([w1, w2])
+
+    wires = group.wires
+    assert wires == [w1, w2]
+
+    # returns a copy — mutation doesn't affect the group
+    wires.append(type_wire_of(token="C", creator=lambda: 3))
+    assert len(group.wires) == 2
+
+
+async def test_get_all_instances() -> None:
+    w1 = type_wire_of(token="A", creator=lambda: "a")
+    w2 = type_wire_of(token="B", creator=lambda: "b")
+    group = type_wire_group_of([w1, w2])
+
+    async with TypeWireContainer() as container:
+        await group.apply(container)
+        results = await group.get_all_instances(container)
+        assert results == ["a", "b"]
+
+
+def test_get_all_instances_sync() -> None:
+    w1 = type_wire_of(token="A", creator=lambda: 10)
+    w2 = type_wire_of(token="B", creator=lambda: 20)
+    group = type_wire_group_of([w1, w2])
+
+    with TypeWireContainer.sync() as container:
+        group.apply_sync(container)
+        results = group.get_all_instances_sync(container)
+        assert results == [10, 20]
+
+
+async def test_combine_wire_groups() -> None:
+    w1 = type_wire_of(token="A", creator=lambda: "a")
+    w2 = type_wire_of(token="B", creator=lambda: "b")
+    w3 = type_wire_of(token="C", creator=lambda: "c")
+
+    g1 = type_wire_group_of([w1])
+    g2 = type_wire_group_of([w2, w3])
+    combined = combine_wire_groups([g1, g2])
+
+    assert len(combined.wires) == 3
+
+    async with TypeWireContainer() as container:
+        await combined.apply(container)
+        assert await w1.get_instance(container) == "a"
+        assert await w2.get_instance(container) == "b"
+        assert await w3.get_instance(container) == "c"
+
+
+async def test_combine_wire_groups_with_override() -> None:
+    w1 = type_wire_of(token="A", creator=lambda: "original")
+    w1_override = w1.with_creator(lambda _ctx: "replaced")
+
+    g1 = type_wire_group_of([w1])
+    g2 = type_wire_group_of([w1_override])
+    combined = combine_wire_groups([g1, g2])
+
+    async with TypeWireContainer() as container:
+        await combined.apply(container)
+        # last-write-wins: g2's override should win
+        assert await w1.get_instance(container) == "replaced"
 
 
 async def test_group_apply_propagates_creator_error() -> None:
