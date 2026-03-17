@@ -7,10 +7,10 @@ from collections.abc import Awaitable, Callable
 from typing import Any, Generic, TypeVar, cast, overload
 
 from typewirepy._introspect import detect_creator_arity
-from typewirepy._token import _WireToken
-from typewirepy.errors import CircularDependencyError, CreatorError, WireNotRegisteredError
+from typewirepy.errors import CreatorError, WireNotRegisteredError
 from typewirepy.protocols import ContainerAdapter
 from typewirepy.scope import Scope
+from typewirepy.token import WireToken
 
 T = TypeVar("T")
 _R = TypeVar("_R")
@@ -47,7 +47,7 @@ class TypeWire(Generic[T]):
 
     def __init__(
         self,
-        token: _WireToken[T],
+        token: WireToken[T],
         creator: Callable[[], T | Awaitable[T]] | None,
         create_with: Callable[..., T | Awaitable[T]] | None,
         imports: dict[str, TypeWire[Any]],
@@ -77,6 +77,11 @@ class TypeWire(Generic[T]):
         )
 
     @property
+    def token(self) -> WireToken[T]:
+        """The unique identity token for this wire."""
+        return self._token
+
+    @property
     def token_label(self) -> str:
         """The string label identifying this wire's token."""
         return self._token.label
@@ -91,33 +96,14 @@ class TypeWire(Generic[T]):
         """This wire's scope ("singleton" or "transient")."""
         return self._scope
 
-    async def apply(
-        self,
-        container: ContainerAdapter,
-        _path: list[_WireToken[object]] | None = None,
-        _is_import: bool = False,
-    ) -> None:
+    async def apply(self, container: ContainerAdapter) -> None:
         """Register this wire and its imports into the container."""
-        if _path is None:
-            _path = []
-
-        if self._token in _path:
-            labels = [t.label for t in _path] + [self._token.label]
-            raise CircularDependencyError(labels)
-
-        # Skip already-registered tokens only during import recursion (SPEC 17.2)
-        if _is_import and container.has(self._token):
-            return
-
-        _path.append(self._token)
-
         for imp_wire in self._imports.values():
-            await imp_wire.apply(container, _path, _is_import=True)
+            if not container.has(imp_wire._token):
+                await imp_wire.apply(container)
 
         factory = self._make_factory(container)
         await container.register(self._token, factory, self._scope)
-
-        _path.pop()
 
     def _make_factory(self, container: ContainerAdapter) -> Callable[[], Awaitable[T]]:
         wire = self

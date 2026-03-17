@@ -4,10 +4,10 @@ from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar, overload
 
 from typewirepy._introspect import detect_convention
-from typewirepy._token import _WireToken
 from typewirepy.errors import TypeWireError
 from typewirepy.group import TypeWireGroup
 from typewirepy.scope import SINGLETON, Scope
+from typewirepy.token import WireToken
 from typewirepy.wire import TypeWire
 
 T = TypeVar("T")
@@ -62,7 +62,7 @@ def type_wire_of(
     if create_with is not None:
         convention = detect_convention(create_with, set(resolved_imports.keys()), strict=True)
 
-    wire_token: _WireToken[Any] = _WireToken(token)
+    wire_token: WireToken[Any] = WireToken(token)
 
     return TypeWire(
         token=wire_token,

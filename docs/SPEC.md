@@ -142,6 +142,7 @@ T = TypeVar("T")
 
 class TypeWire(Generic[T]):
     # Properties (read-only)
+    token: WireToken[T]                     # the wire's unique identity token
     token_label: str                        # the wire's string label
     imports: dict[str, TypeWire[Any]]       # shallow copy of import dependencies
     scope: Scope                            # SINGLETON or TRANSIENT
@@ -228,26 +229,26 @@ from typing import Protocol, runtime_checkable
 
 @runtime_checkable
 class ContainerAdapter(Protocol):
-    async def register(self, token: _WireToken, factory: Callable, scope: Scope) -> None: ...
-    async def resolve(self, token: _WireToken) -> Any: ...
-    def has(self, token: _WireToken) -> bool: ...
+    async def register(self, token: WireToken, factory: Callable, scope: Scope) -> None: ...
+    async def resolve(self, token: WireToken) -> Any: ...
+    def has(self, token: WireToken) -> bool: ...
 ```
 
-Note: `ContainerAdapter` receives `_WireToken` (not string) so identity-based
+Note: `ContainerAdapter` receives `WireToken` (not string) so identity-based
 lookup works correctly. The string label is only for error messages.
 
 ---
 
-## 4. Internal Token Identity (Symbol Equivalent)
+## 4. Token Identity (Symbol Equivalent)
 
 In TypeWire TS, the user passes a string `token`, but internally it becomes a
-`Symbol(token)` — unique by identity. The user never interacts with the Symbol.
+`Symbol(token)` — unique by identity. Python exposes this as `WireToken`.
 
 ### Python implementation
 
 ```python
-class _WireToken:
-    """Internal unique identity. Equivalent to Symbol(label) in JavaScript."""
+class WireToken:
+    """Unique identity token for a wire. Equivalent to Symbol(label) in JavaScript."""
     __slots__ = ("label",)
 
     def __init__(self, label: str):
@@ -258,24 +259,25 @@ class _WireToken:
 
     # No __eq__ / __hash__ override
     # → uses object identity (id(self)) by default
-    # → two _WireToken("Logger") are never equal, like Symbol("Logger")
+    # → two WireToken("Logger") are never equal, like Symbol("Logger")
 ```
 
 ### Identity flow
 
-| Scenario | Internal token | Behavior |
-|----------|---------------|----------|
-| `type_wire_of(token="Logger")` called twice | Two distinct `_WireToken` | Two separate wires, no collision |
-| `wire.with_creator(...)` | Same `_WireToken` as original | Container treats it as override |
-| `wire.with_creator(...).with_creator(...)` | Same `_WireToken` | Chained overrides, same identity |
+| Scenario | Token | Behavior |
+|----------|-------|----------|
+| `type_wire_of(token="Logger")` called twice | Two distinct `WireToken` | Two separate wires, no collision |
+| `wire.with_creator(...)` | Same `WireToken` as original | Container treats it as override |
+| `wire.with_creator(...).with_creator(...)` | Same `WireToken` | Chained overrides, same identity |
 
 ### User visibility
 
-None. `_WireToken` is a private implementation detail. The string label appears
-only in error messages:
+`WireToken` is a public class, accessible via `wire.token` or directly from
+`typewirepy`. The string label appears in error messages and `__repr__`:
 
-```
-CircularDependencyError: Circular dependency detected: Logger → UserService → Logger
+```python
+wire.token        # WireToken('Logger')
+wire.token_label  # "Logger"
 ```
 
 ---
@@ -595,7 +597,7 @@ class TypeWireError(Exception):
     """Base exception for all TypeWire errors."""
 
 class CircularDependencyError(TypeWireError):
-    """Raised when a circular dependency is detected during apply()."""
+    """Raised when a circular dependency is detected during resolution."""
 
 class WireNotRegisteredError(TypeWireError):
     """Raised when get_instance() is called for a wire not yet applied."""
@@ -892,7 +894,7 @@ async def test_user_service():
 | 1 | No parameter destructuring | `createWith({ logger })` | Detect signature: expand as `**kwargs` for named params, pass dict for lambdas |
 | 2 | Type inference on returns | Automatic via TS | `@overload` + recommended explicit `TypeWire[T]` annotation |
 | 3 | Sync/async separation | `Promise<T>` everywhere | Async-primary + `apply_sync()` / `get_instance_sync()` convenience |
-| 4 | No `Symbol` in Python | `Symbol(token)` | Private `_WireToken` class using object identity |
+| 4 | No `Symbol` in Python | `Symbol(token)` | Public `WireToken` class using object identity |
 | 5 | No lifecycle/cleanup in TS | Not needed in JS | Generator-based creators + container-as-context-manager (§6) |
 
 Gap #5 is an **addition**, not a compromise — it makes TypeWire more Pythonic by
@@ -916,7 +918,8 @@ typewirepy/
 │       ├── protocols.py     # ContainerAdapter protocol
 │       ├── scope.py         # Scope enum (SINGLETON, TRANSIENT)
 │       ├── errors.py        # Exception hierarchy
-│       ├── _token.py        # _WireToken (private, Symbol equivalent)
+│       ├── token.py         # WireToken (public, Symbol equivalent)
+│       ├── monitor.py      # ResolutionMonitor protocol + CircularDependencyMonitor
 │       ├── _introspect.py   # inspect-based creator signature detection
 │       └── integrations/    # optional framework adapters (no extra deps)
 │           ├── __init__.py
@@ -955,7 +958,7 @@ typewirepy/
 
 1. **`errors.py`** — exception hierarchy (needed by everything)
 2. **`scope.py`** — `Scope` enum
-3. **`_token.py`** — `_WireToken`
+3. **`token.py`** — `WireToken`
 4. **`protocols.py`** — `ContainerAdapter` protocol
 5. **`_introspect.py`** — creator signature detection (dict vs kwargs)
 6. **`wire.py`** — `TypeWire[T]` class
@@ -972,10 +975,9 @@ typewirepy/
 
 These do not block the spec but should be resolved during implementation:
 
-1. **Duplicate token policy:** When `apply()` encounters a wire whose token is
-   already registered, should it: (a) silently override (last-write-wins),
-   (b) raise `DuplicateWireError`, or (c) be configurable? TypeWire TS behavior
-   should be the default.
+1. **Duplicate token policy:** `apply()` uses last-write-wins for the wire
+   itself (always registers), and skips imports that are already registered.
+   This matches TypeWire TS behavior.
 
 2. **Lazy vs eager resolution:** Should `apply()` resolve all wires immediately
    or defer to first `get_instance()` call? TypeWire TS defers (lazy).
@@ -1019,9 +1021,10 @@ When `with_extra_wires` overrides a wire, the override may have the same imports
 as the original. But what if an overriding wire references an import wire that
 isn't in the group?
 
-**Decision:** `apply()` recursively registers all imports, including those
-transitively referenced by overrides. If an import wire's token is already
-registered, it is skipped (not duplicated). This matches TypeWire TS behavior.
+**Decision:** `apply()` registers all imports that are not yet registered in the
+container, including those transitively referenced by overrides. If an import
+wire's token is already registered, it is skipped. This matches TypeWire TS
+behavior.
 
 ### 17.3 TypeWire Immutability
 
@@ -1064,6 +1067,7 @@ build dependency graphs, generate documentation, or debug resolution without
 reaching into private attributes.
 
 ```python
+wire.token        # WireToken('UserService')
 wire.token_label  # "UserService"
 wire.scope        # Scope.SINGLETON
 wire.imports      # {"logger": TypeWire(...)}  — shallow copy, safe to mutate
@@ -1080,15 +1084,22 @@ When `imports` is omitted, `creator` is required.
 
 ### 17.6 Circular Dependency Detection
 
-Detected at `apply()` time by tracking the resolution path. When wire A imports
-wire B which imports wire A, raise `CircularDependencyError` with the full cycle
-path in the message:
+Detected at **resolution time** via a pluggable `ResolutionMonitor`. When
+resolving token A triggers resolution of token B which triggers resolution of
+token A, `CircularDependencyError` is raised with the full cycle path:
 
 ```
-CircularDependencyError: Circular dependency: A → B → A
+CircularDependencyError: Circular dependency: A -> B -> A
 ```
 
-Detection uses a set of `_WireToken` identities during recursive `apply()`.
+The default `CircularDependencyMonitor` tracks the resolution path using a set
+for O(1) cycle detection and a list for error reporting. The monitor wraps
+`TypeWireContainer.resolve()` — the first (root) resolve call creates a monitor,
+and nested resolves (from factories) reuse the same monitor instance.
+
+Custom monitors can be provided via `TypeWireContainer(monitor_factory=...)`.
+The `ResolutionMonitor` protocol requires `enter(token)` and `exit(token)`
+methods.
 
 ---
 

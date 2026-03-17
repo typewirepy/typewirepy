@@ -19,7 +19,7 @@ def test_sync_container_context_manager() -> None:
         result = wire.get_instance_sync(container)
         assert result == "hello"
     # After exiting, state is cleared
-    assert not container.has(wire._token)
+    assert not container.has(wire.token)
 
 
 def test_group_apply_sync() -> None:

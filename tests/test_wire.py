@@ -7,7 +7,7 @@ from typewirepy import SINGLETON, TRANSIENT, Scope, TypeWire, TypeWireContainer,
 
 async def test_wire_creation_with_creator() -> None:
     wire: TypeWire[str] = type_wire_of(token="Greeting", creator=lambda: "hello")
-    assert wire._token.label == "Greeting"
+    assert wire.token.label == "Greeting"
     assert wire._scope == SINGLETON
     assert wire._imports == {}
 
@@ -99,7 +99,7 @@ async def test_with_creator_2_arg() -> None:
 async def test_with_creator_preserves_token_identity() -> None:
     wire = type_wire_of(token="Svc", creator=lambda: "a")
     overridden = wire.with_creator(lambda _ctx: "b")
-    assert wire._token is overridden._token
+    assert wire.token is overridden.token
 
 
 async def test_token_label() -> None:
@@ -135,5 +135,5 @@ async def test_wire_repr_with_imports() -> None:
         imports={"dep": dep},
         create_with=lambda deps: deps["dep"],
     )
-    assert wire._token.label == "Main"
+    assert wire.token.label == "Main"
     assert set(wire._imports.keys()) == {"dep"}

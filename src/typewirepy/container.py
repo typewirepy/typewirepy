@@ -7,9 +7,10 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar, cast
 
-from typewirepy._token import _WireToken
 from typewirepy.errors import WireNotRegisteredError
+from typewirepy.monitor import CircularDependencyMonitor, ResolutionMonitor
 from typewirepy.scope import SINGLETON, Scope
+from typewirepy.token import WireToken
 
 T = TypeVar("T")
 
@@ -19,20 +20,30 @@ logger = logging.getLogger(__name__)
 class TypeWireContainer:
     """Default async container that stores factories, manages scopes, and handles teardown."""
 
-    def __init__(self) -> None:
-        self._factories: dict[_WireToken[object], Callable[[], Awaitable[object]]] = {}
-        self._scopes: dict[_WireToken[object], Scope] = {}
-        self._singletons: dict[_WireToken[object], object] = {}
+    def __init__(
+        self,
+        *,
+        monitor_factory: Callable[[], ResolutionMonitor] | None = None,
+    ) -> None:
+        self._factories: dict[WireToken[object], Callable[[], Awaitable[object]]] = {}
+        self._scopes: dict[WireToken[object], Scope] = {}
+        self._singletons: dict[WireToken[object], object] = {}
         self._generators: list[object] = []
+        self._monitor_factory = monitor_factory or CircularDependencyMonitor
+        self._active_monitor: ResolutionMonitor | None = None
+
+    def create_monitor(self) -> ResolutionMonitor:
+        """Create a new resolution monitor instance."""
+        return self._monitor_factory()
 
     async def register(
-        self, token: _WireToken[T], factory: Callable[[], Awaitable[T]], scope: Scope
+        self, token: WireToken[T], factory: Callable[[], Awaitable[T]], scope: Scope
     ) -> None:
         """Store a factory and its scope for later resolution."""
         self._factories[token] = factory
         self._scopes[token] = scope
 
-    async def resolve(self, token: _WireToken[T]) -> T:
+    async def resolve(self, token: WireToken[T]) -> T:
         """Resolve a token to its value, caching singletons and tracking generators."""
         if token not in self._factories:
             raise WireNotRegisteredError(token.label)
@@ -40,24 +51,36 @@ class TypeWireContainer:
         if token in self._singletons:
             return cast("T", self._singletons[token])
 
-        raw = self._factories[token]()
-        result: object = await raw if inspect.isawaitable(raw) else raw
+        is_root = self._active_monitor is None
+        if is_root:
+            self._active_monitor = self.create_monitor()
 
-        if inspect.isasyncgen(result):
-            value = await result.__anext__()
-            self._generators.append(result)
-            result = value
-        elif inspect.isgenerator(result):
-            value = next(result)
-            self._generators.append(result)
-            result = value
+        monitor = self._active_monitor
+        assert monitor is not None
+        monitor.enter(token)
+        try:
+            raw = self._factories[token]()
+            result: object = await raw if inspect.isawaitable(raw) else raw
 
-        if self._scopes[token] == SINGLETON:
-            self._singletons[token] = result
+            if inspect.isasyncgen(result):
+                value = await result.__anext__()
+                self._generators.append(result)
+                result = value
+            elif inspect.isgenerator(result):
+                value = next(result)
+                self._generators.append(result)
+                result = value
 
-        return cast("T", result)
+            if self._scopes[token] == SINGLETON:
+                self._singletons[token] = result
 
-    def has(self, token: _WireToken[object]) -> bool:
+            return cast("T", result)
+        finally:
+            monitor.exit(token)
+            if is_root:
+                self._active_monitor = None
+
+    def has(self, token: WireToken[object]) -> bool:
         """Return True if a factory has been registered for *token*."""
         return token in self._factories
 

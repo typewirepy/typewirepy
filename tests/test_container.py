@@ -21,7 +21,7 @@ async def test_register_resolve_has() -> None:
     wire = type_wire_of(token="Val", creator=lambda: 42)
     async with TypeWireContainer() as container:
         await wire.apply(container)
-        assert container.has(wire._token)
+        assert container.has(wire.token)
         assert await wire.get_instance(container) == 42
 
 
@@ -63,9 +63,9 @@ async def test_teardown_clears_state() -> None:
     wire = type_wire_of(token="Val", creator=lambda: 1)
     container = TypeWireContainer()
     await wire.apply(container)
-    assert container.has(wire._token)
+    assert container.has(wire.token)
     await container.teardown()
-    assert not container.has(wire._token)
+    assert not container.has(wire.token)
 
 
 async def test_unregistered_resolve_raises() -> None:

@@ -129,6 +129,7 @@ wire = type_wire_of(
     scope=Scope.TRANSIENT,
 )
 
+wire.token        # WireToken('UserService')
 wire.token_label  # "UserService"
 wire.scope        # Scope.TRANSIENT
 wire.imports      # {"db": TypeWire(...)}  (shallow copy — safe to mutate)

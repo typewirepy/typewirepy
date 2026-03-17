@@ -5,8 +5,8 @@ from typing import Generic, TypeVar
 T_co = TypeVar("T_co", covariant=True)
 
 
-class _WireToken(Generic[T_co]):
-    """Internal unique identity. Equivalent to Symbol(label) in JavaScript."""
+class WireToken(Generic[T_co]):
+    """Unique identity token for a wire. Equivalent to Symbol(label) in JavaScript."""
 
     __slots__ = ("label",)
 

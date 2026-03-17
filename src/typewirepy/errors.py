@@ -6,7 +6,7 @@ class TypeWireError(Exception):
 
 
 class CircularDependencyError(TypeWireError):
-    """Raised when a circular dependency is detected during apply()."""
+    """Raised when a circular dependency is detected during resolution."""
 
     def __init__(self, path: list[str]) -> None:
         self.path = path
