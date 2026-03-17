@@ -98,12 +98,28 @@ A `TypeWireGroup` bundles wires together for batch application:
 ```python
 group = type_wire_group_of([config_wire, db_wire, service_wire])
 await group.apply(container)
+
+# Read-only access to the group's wires
+group.wires  # [TypeWire(...), TypeWire(...), ...]
+
+# Resolve all wires concurrently
+instances = await group.get_all_instances(container)
 ```
 
 Override wires for testing with `with_extra_wires()`:
 
 ```python
 test_group = group.with_extra_wires([service_wire.with_creator(lambda _ctx: mock_svc)])
+```
+
+Combine multiple groups into one with `combine_wire_groups()`:
+
+```python
+from typewirepy import combine_wire_groups
+
+infra = type_wire_group_of([config_wire, db_wire])
+domain = type_wire_group_of([service_wire])
+all_wires = combine_wire_groups([infra, domain])
 ```
 
 Use the 2-arg form of `with_creator` to spy on or decorate the original creator:
