@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typewirepy import TypeWireContainer, type_wire_group_of, type_wire_of
+from typewirepy._introspect import detect_creator_arity
 
 
 async def test_with_creator_1_arg_override() -> None:
@@ -109,3 +110,70 @@ async def test_chained_with_creator() -> None:
     async with TypeWireContainer() as container:
         await v3.apply(container)
         assert await wire.get_instance(container) == "v3"
+
+
+# --- Regression: lambda default args must not trigger spy pattern ---
+
+
+async def test_with_creator_lambda_default_arg_not_misclassified() -> None:
+    """lambda _ctx, val=captured: val must resolve to the captured value, not a function."""
+    loader = "my_s3_loader"
+    wire = type_wire_of(token="Svc", creator=lambda: "original")
+    overridden = wire.with_creator(lambda _ctx, ldr=loader: ldr)
+
+    async with TypeWireContainer() as container:
+        await overridden.apply(container)
+        result = await wire.get_instance(container)
+        assert result == "my_s3_loader"
+
+
+async def test_with_creator_lambda_multiple_default_args() -> None:
+    wire = type_wire_of(token="Svc", creator=lambda: "original")
+    overridden = wire.with_creator(lambda _ctx, a="alpha", b="beta": f"{a}-{b}")
+
+    async with TypeWireContainer() as container:
+        await overridden.apply(container)
+        result = await wire.get_instance(container)
+        assert result == "alpha-beta"
+
+
+async def test_with_creator_2_arg_spy_still_works_after_default_fix() -> None:
+    """Two required positional params still triggers the wrap/spy pattern."""
+    wire = type_wire_of(token="Svc", creator=lambda: "original")
+
+    async def spy(ctx: object, original: object) -> str:
+        val = await original()  # type: ignore[operator]
+        return f"spy({val})"
+
+    overridden = wire.with_creator(spy)
+
+    async with TypeWireContainer() as container:
+        await overridden.apply(container)
+        assert await wire.get_instance(container) == "spy(original)"
+
+
+# --- Unit tests for detect_creator_arity ---
+
+
+def test_detect_creator_arity_one_required_param() -> None:
+    assert detect_creator_arity(lambda ctx: None) == 1
+
+
+def test_detect_creator_arity_two_required_params() -> None:
+    assert detect_creator_arity(lambda ctx, original: None) == 2
+
+
+def test_detect_creator_arity_one_required_one_default() -> None:
+    assert detect_creator_arity(lambda ctx, x=10: None) == 1
+
+
+def test_detect_creator_arity_one_required_multiple_defaults() -> None:
+    assert detect_creator_arity(lambda ctx, x=10, y=20: None) == 1
+
+
+def test_detect_creator_arity_no_params() -> None:
+    assert detect_creator_arity(lambda: None) == 1
+
+
+def test_detect_creator_arity_uninspectable() -> None:
+    assert detect_creator_arity(42) == 1
