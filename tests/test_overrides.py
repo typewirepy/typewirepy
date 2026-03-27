@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+
 from typewirepy import TypeWireContainer, type_wire_group_of, type_wire_of
 from typewirepy._introspect import detect_creator_arity
 
@@ -16,8 +18,8 @@ async def test_with_creator_1_arg_override() -> None:
 async def test_with_creator_2_arg_spy() -> None:
     wire = type_wire_of(token="Svc", creator=lambda: "original")
 
-    async def spy(ctx: object, original: object) -> str:
-        val = await original()  # type: ignore[operator]
+    async def spy(ctx: object, original: Callable[[], Awaitable[object]]) -> str:
+        val = await original()
         return f"spy({val})"
 
     overridden = wire.with_creator(spy)
@@ -45,8 +47,8 @@ async def test_with_creator_2_arg_on_wire_with_imports_dict() -> None:
         imports={"dep": dep_wire},
     )
 
-    async def spy(ctx: object, original: object) -> str:
-        val = await original()  # type: ignore[operator]
+    async def spy(ctx: object, original: Callable[[], Awaitable[object]]) -> str:
+        val = await original()
         return f"spy({val})"
 
     overridden = wire.with_creator(spy)
@@ -68,8 +70,8 @@ async def test_with_creator_2_arg_on_wire_with_imports_kwargs() -> None:
         imports={"dep": dep_wire},
     )
 
-    async def spy(ctx: object, original: object) -> str:
-        val = await original()  # type: ignore[operator]
+    async def spy(ctx: object, original: Callable[[], Awaitable[object]]) -> str:
+        val = await original()
         return f"spy({val})"
 
     overridden = wire.with_creator(spy)
@@ -87,12 +89,13 @@ async def test_chained_with_creator_2_arg_on_wire_with_imports() -> None:
         imports={"dep": dep_wire},
     )
 
-    async def layer1(ctx: object, original: object) -> int:
-        val = await original()  # type: ignore[operator]
-        return val + 100  # type: ignore[operator]
+    async def layer1(ctx: object, original: Callable[[], Awaitable[object]]) -> int:
+        val = await original()
+        assert isinstance(val, int)
+        return val + 100
 
-    async def layer2(ctx: object, original: object) -> str:
-        val = await original()  # type: ignore[operator]
+    async def layer2(ctx: object, original: Callable[[], Awaitable[object]]) -> str:
+        val = await original()
         return f"final={val}"
 
     overridden = wire.with_creator(layer1).with_creator(layer2)
@@ -141,8 +144,8 @@ async def test_with_creator_2_arg_spy_still_works_after_default_fix() -> None:
     """Two required positional params still triggers the wrap/spy pattern."""
     wire = type_wire_of(token="Svc", creator=lambda: "original")
 
-    async def spy(ctx: object, original: object) -> str:
-        val = await original()  # type: ignore[operator]
+    async def spy(ctx: object, original: Callable[[], Awaitable[object]]) -> str:
+        val = await original()
         return f"spy({val})"
 
     overridden = wire.with_creator(spy)

@@ -4,8 +4,9 @@ import asyncio
 import contextlib
 import inspect
 import logging
-from collections.abc import Awaitable, Callable
-from typing import Any, TypeVar, cast
+from collections.abc import AsyncGenerator, Awaitable, Callable, Generator
+from types import TracebackType
+from typing import TypeVar, cast
 
 from typewirepy.errors import WireNotRegisteredError
 from typewirepy.monitor import CircularDependencyMonitor, ResolutionMonitor
@@ -28,7 +29,7 @@ class TypeWireContainer:
         self._factories: dict[WireToken[object], Callable[[], Awaitable[object]]] = {}
         self._scopes: dict[WireToken[object], Scope] = {}
         self._singletons: dict[WireToken[object], object] = {}
-        self._generators: list[object] = []
+        self._generators: list[Generator[object, None, None] | AsyncGenerator[object, None]] = []
         self._monitor_factory = monitor_factory or CircularDependencyMonitor
         self._active_monitor: ResolutionMonitor | None = None
 
@@ -62,14 +63,14 @@ class TypeWireContainer:
             raw = self._factories[token]()
             result: object = await raw if inspect.isawaitable(raw) else raw
 
-            if inspect.isasyncgen(result):
-                value = await result.__anext__()
-                self._generators.append(result)
-                result = value
-            elif inspect.isgenerator(result):
-                value = next(result)
-                self._generators.append(result)
-                result = value
+            if isinstance(result, AsyncGenerator):
+                agen = cast("AsyncGenerator[object, None]", result)
+                result = await agen.__anext__()
+                self._generators.append(agen)
+            elif isinstance(result, Generator):
+                sgen = cast("Generator[object, None, None]", result)
+                result = next(sgen)
+                self._generators.append(sgen)
 
             if self._scopes[token] == SINGLETON:
                 self._singletons[token] = result
@@ -88,12 +89,12 @@ class TypeWireContainer:
         """Finalize all tracked generators in reverse order and clear state."""
         for gen in reversed(self._generators):
             try:
-                if inspect.isasyncgen(gen):
+                if isinstance(gen, AsyncGenerator):
                     with contextlib.suppress(StopAsyncIteration):
                         await gen.__anext__()
                 else:
                     with contextlib.suppress(StopIteration):
-                        next(gen)  # type: ignore[call-overload]
+                        next(gen)
             except Exception:
                 logger.exception("Error during teardown of generator %r", gen)
 
@@ -105,7 +106,12 @@ class TypeWireContainer:
     async def __aenter__(self) -> TypeWireContainer:
         return self
 
-    async def __aexit__(self, *exc: Any) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         await self.teardown()
 
     @classmethod
@@ -121,5 +127,10 @@ class _SyncContextManager:
     def __enter__(self) -> TypeWireContainer:
         return self._container
 
-    def __exit__(self, *exc: Any) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         asyncio.run(self._container.teardown())
