@@ -38,3 +38,4 @@ uv run pyright src/typewirepy/
 1. Branch from `main`
 2. Ensure all CI checks pass (tests, lint, format, type-check)
 3. Keep changes focused — one feature or fix per PR
+4. Follow the project's [Best Practices](docs/best-practices.md) conventions
