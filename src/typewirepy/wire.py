@@ -120,7 +120,8 @@ class TypeWire(Generic[T]):
                         result = wire._create_with(resolved)
                     return cast("T", await _maybe_await(result))
                 else:
-                    return await _maybe_await(wire._creator())  # type: ignore[misc]
+                    assert wire._creator is not None
+                    return cast("T", await _maybe_await(wire._creator()))
             except CreatorError:
                 raise
             except Exception as e:
@@ -173,7 +174,8 @@ class TypeWire(Generic[T]):
                 def wrapped_creator() -> Awaitable[T]:
                     async def _call_with_original() -> T:
                         async def original_caller() -> T:
-                            return await _maybe_await(original_wire._creator())  # type: ignore[misc]
+                            assert original_wire._creator is not None
+                            return cast("T", await _maybe_await(original_wire._creator()))
 
                         return cast("T", await _maybe_await(fn(None, original_caller)))
 

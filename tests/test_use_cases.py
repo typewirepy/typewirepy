@@ -105,7 +105,7 @@ async def test_transient_singleton_interaction() -> None:
 
     call_count = 0
 
-    def make_transient(deps: dict[str, Any]) -> dict[str, Any]:
+    def make_transient(deps: dict[str, object]) -> dict[str, object]:
         nonlocal call_count
         call_count += 1
         return {"shared": deps["shared"], "call": call_count}
@@ -135,6 +135,7 @@ async def test_cleanup_on_shutdown_reverse_order() -> None:
     """Generator-based resources are cleaned up in reverse registration order."""
     order: list[str] = []
 
+    # -> Any: the container unwraps generators at runtime; the static type can't capture this
     def make_db() -> Any:
         yield "db_conn"
         order.append("db_closed")
@@ -160,6 +161,7 @@ async def test_teardown_idempotent() -> None:
     """Calling teardown() twice should not raise."""
     cleanup_count = 0
 
+    # -> Any: the container unwraps generators at runtime
     def make_resource() -> Any:
         nonlocal cleanup_count
         yield "resource"

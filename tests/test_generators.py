@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from typewirepy import TypeWireContainer, type_wire_of
 
 
 async def test_sync_generator_creator() -> None:
     cleanup_called = False
 
+    # -> Any: the container unwraps generators at runtime; the static type can't capture this
     def make_resource() -> Any:
         nonlocal cleanup_called
         yield "resource"
@@ -25,6 +28,7 @@ async def test_sync_generator_creator() -> None:
 async def test_async_generator_creator() -> None:
     cleanup_called = False
 
+    # -> Any: the container unwraps async generators at runtime; the static type can't capture this
     async def make_resource() -> Any:
         nonlocal cleanup_called
         yield "async_resource"
@@ -62,7 +66,7 @@ async def test_teardown_reverse_order() -> None:
     assert order == ["second_cleanup", "first_cleanup"]
 
 
-async def test_error_during_cleanup_handled(caplog: Any) -> None:
+async def test_error_during_cleanup_handled(caplog: pytest.LogCaptureFixture) -> None:
     def make_bad() -> Any:
         yield "value"
         raise RuntimeError("cleanup boom")

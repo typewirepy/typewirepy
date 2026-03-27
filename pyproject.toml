@@ -83,10 +83,20 @@ reportMissingTypeStubs = false
 reportPrivateUsage = false
 reportUnusedClass = false
 
+[[tool.pyright.executionEnvironments]]
+root = "tests"
+# Lambdas passed to Callable[..., Any] overload implementations have Unknown
+# parameter types — this is a structural limitation, not a real type-safety gap.
+reportUnknownLambdaType = false
+reportUnknownArgumentType = false
+reportUnknownVariableType = false
+reportUnknownMemberType = false
+# FastAPI test endpoints are used via decorators; pyright can't trace the usage.
+reportUnusedFunction = false
+
 [tool.ty.rules]
-# ty configuration (Astral's type checker, in beta)
-# Adjust as ty matures
-# unused-ignore-comment = "warn"
+# The cast in container.py is needed for pyright but ty considers it redundant
+redundant-cast = "ignore"
 
 [tool.ruff]
 target-version = "py311"

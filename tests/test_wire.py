@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+
 import pytest
 
 from typewirepy import SINGLETON, TRANSIENT, Scope, TypeWire, TypeWireContainer, type_wire_of
@@ -67,7 +69,7 @@ async def test_wire_async_creator() -> None:
     async def make_value() -> int:
         return 42
 
-    wire = type_wire_of(token="Async", creator=make_value)
+    wire: TypeWire[int] = type_wire_of(token="Async", creator=make_value)
     async with TypeWireContainer() as container:
         await wire.apply(container)
         assert await wire.get_instance(container) == 42
@@ -85,8 +87,8 @@ async def test_with_creator_1_arg() -> None:
 async def test_with_creator_2_arg() -> None:
     wire = type_wire_of(token="Original", creator=lambda: "original")
 
-    async def spy(ctx: object, original: object) -> str:
-        result = await original()  # type: ignore[operator]
+    async def spy(ctx: object, original: Callable[[], Awaitable[object]]) -> str:
+        result = await original()
         return f"spied({result})"
 
     overridden = wire.with_creator(spy)

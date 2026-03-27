@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
+
 import pytest
 
 from typewirepy import TypeWire, TypeWireContainer, type_wire_of
 
 
 @pytest.fixture
-async def container():
+async def container() -> AsyncGenerator[TypeWireContainer, None]:
     async with TypeWireContainer() as c:
         yield c
 

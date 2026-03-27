@@ -100,7 +100,10 @@ async def test_custom_monitor_factory() -> None:
     container = TypeWireContainer(monitor_factory=TrackingMonitor)
     token: WireToken[str] = WireToken("X")
 
-    await container.register(token, lambda: "x", SINGLETON)
+    async def factory_x() -> str:
+        return "x"
+
+    await container.register(token, factory_x, SINGLETON)
     result = await container.resolve(token)
 
     assert result == "x"
