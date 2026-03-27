@@ -58,6 +58,7 @@ def detect_creator_arity(fn: object) -> Literal[1, 2]:
             inspect.Parameter.POSITIONAL_ONLY,
             inspect.Parameter.POSITIONAL_OR_KEYWORD,
         )
+        and p.default is inspect.Parameter.empty
     ]
 
     if len(params) >= 2:
