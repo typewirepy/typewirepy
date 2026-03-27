@@ -119,7 +119,7 @@ async def test_with_creator_lambda_default_arg_not_misclassified() -> None:
     """lambda _ctx, val=captured: val must resolve to the captured value, not a function."""
     loader = "my_s3_loader"
     wire = type_wire_of(token="Svc", creator=lambda: "original")
-    overridden = wire.with_creator(lambda _ctx, l=loader: l)
+    overridden = wire.with_creator(lambda _ctx, ldr=loader: ldr)
 
     async with TypeWireContainer() as container:
         await overridden.apply(container)
