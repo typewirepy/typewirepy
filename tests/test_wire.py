@@ -69,7 +69,7 @@ async def test_wire_async_creator() -> None:
     async def make_value() -> int:
         return 42
 
-    wire = type_wire_of(token="Async", creator=make_value)
+    wire: TypeWire[int] = type_wire_of(token="Async", creator=make_value)
     async with TypeWireContainer() as container:
         await wire.apply(container)
         assert await wire.get_instance(container) == 42

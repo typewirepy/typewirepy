@@ -75,11 +75,11 @@ jobs:
 
       - name: Run mypy
         if: matrix.checker == 'mypy'
-        run: uv run mypy src/typewirepy/
+        run: uv run mypy src/typewirepy/ tests/
 
       - name: Run pyright
         if: matrix.checker == 'pyright'
-        run: uv run pyright src/typewirepy/
+        run: uv run pyright src/typewirepy/ tests/
 
       - name: Run ty
         if: matrix.checker == 'ty'
