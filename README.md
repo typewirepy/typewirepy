@@ -153,6 +153,10 @@ wire.imports      # {"db": TypeWire(...)}  (shallow copy — safe to mutate)
 
 Use these to build dependency graphs, generate documentation, or debug resolution order.
 
+## Best Practices
+
+For conventions on wire visibility, creator patterns, and file organization, see [Best Practices](docs/best-practices.md).
+
 ## FastAPI Integration
 
 ```python
