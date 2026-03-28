@@ -218,7 +218,7 @@ async def spy_logger(ctx, original_creator):
     original.log = MagicMock(wraps=original.log)
     return original
 
-logger_wire.with_creator(spy_logger)
+spied_logger_wire = logger_wire.with_creator(spy_logger)
 ```
 
 The `with_creator` callback supports both 1-arg `(ctx)` and 2-arg
@@ -337,8 +337,8 @@ Creators can be either sync or async. The library normalizes internally:
 
 ```python
 # Both are valid
-type_wire_of(token="A", creator=lambda: SyncThing())
-type_wire_of(token="B", creator=async_factory)
+sync_wire = type_wire_of(token="A", creator=lambda: SyncThing())
+async_wire = type_wire_of(token="B", creator=async_factory)
 ```
 
 ---

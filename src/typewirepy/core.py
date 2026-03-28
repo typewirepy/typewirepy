@@ -42,7 +42,20 @@ def type_wire_of(
 ) -> TypeWire[Any]:
     """Create a new wire.
 
-    Use *creator* for leaf dependencies or *create_with* + *imports* for composed ones.
+    Use *creator* for simple (zero-dependency) wires or *create_with* + *imports*
+    for composed ones.
+
+    Examples::
+
+        # Simple wire — no dependencies
+        config_wire = type_wire_of(token="Config", creator=lambda: Config())
+
+        # Composed wire — depends on other wires
+        svc_wire = type_wire_of(
+            token="Service",
+            imports={"config": config_wire},
+            create_with=lambda *, config: Service(config),
+        )
     """
     if creator is not None and create_with is not None:
         raise TypeWireError("Cannot specify both 'creator' and 'create_with'")
