@@ -70,7 +70,7 @@ with TypeWireContainer.sync() as container:
 
 A **wire** is an immutable description of a dependency — its token (name), how to create it, and what it depends on. Create wires with `type_wire_of()`:
 
-- **Leaf wire** — uses `creator` (zero-arg callable)
+- **Simple wire** — uses `creator` (zero-arg callable, no dependencies)
 - **Composed wire** — uses `create_with` + `imports` to receive resolved dependencies
 
 ### Imports
@@ -79,11 +79,11 @@ Imports declare which other wires a composed wire depends on. They're passed as 
 
 ```python
 # Keyword-only parameters (works with lambdas too)
-type_wire_of(token="Svc", imports={"db": db_wire}, create_with=lambda *, db: Service(db))
+svc_wire = type_wire_of(token="Svc", imports={"db": db_wire}, create_with=lambda *, db: Service(db))
 
 # Named function
 def create_svc(*, db: Database) -> Service: ...
-type_wire_of(token="Svc", imports={"db": db_wire}, create_with=create_svc)
+svc_wire = type_wire_of(token="Svc", imports={"db": db_wire}, create_with=create_svc)
 ```
 
 ### Scopes

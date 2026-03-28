@@ -112,9 +112,9 @@ config_wire = type_wire_of(
 )
 ```
 
-### Lambda for leaf wires
+### Lambda for simple wires
 
-Only for trivial leaf wires with zero dependencies — config literals, simple
+Only for trivial simple wires with zero dependencies — config literals,
 constructors, or constants.
 
 ```python
@@ -650,7 +650,7 @@ are separate concerns).
 | Wire naming | `db_wire = type_wire_of(...)` | `_db_wire = type_wire_of(...)` |
 | Internal dependencies | `_policy = RetryPolicy(...)` | `_policy_wire = type_wire_of(...)` |
 | `create_with` creator | Factory function with typed `*` args | Untyped lambda or `**kwargs` |
-| Leaf creators | `creator=lambda: Config(...)` | Overkill named function |
+| Simple wire creators | `creator=lambda: Config(...)` | Overkill named function |
 | Creator preference | Factory fn → classmethod → constructor | Constructor as default |
 | File layout | `service.py` + `wires.py` | Everything in one file |
 | Named instances | Separate wires, dict wire, or `NamedProvider` | See §5 for trade-offs |
