@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import inspect
 import logging
@@ -9,6 +8,7 @@ from types import TracebackType
 from typing import TypeVar, cast
 
 from typewirepy.errors import WireNotRegisteredError
+from typewirepy.wire import _run_sync
 from typewirepy.monitor import CircularDependencyMonitor, ResolutionMonitor
 from typewirepy.scope import SINGLETON, Scope
 from typewirepy.token import WireToken
@@ -133,4 +133,4 @@ class _SyncContextManager:
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
     ) -> None:
-        asyncio.run(self._container.teardown())
+        _run_sync(self._container.teardown())

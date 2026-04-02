@@ -4,7 +4,7 @@ import asyncio
 from typing import Any
 
 from typewirepy.protocols import ContainerAdapter
-from typewirepy.wire import TypeWire, _check_no_running_loop
+from typewirepy.wire import TypeWire, _run_sync
 
 
 class TypeWireGroup:
@@ -45,10 +45,8 @@ class TypeWireGroup:
         return list(await asyncio.gather(*(wire.get_instance(container) for wire in self._wires)))
 
     def apply_sync(self, container: ContainerAdapter) -> None:
-        _check_no_running_loop()
-        asyncio.run(self.apply(container))
+        _run_sync(self.apply(container))
 
     def get_all_instances_sync(self, container: ContainerAdapter) -> list[Any]:
         """Resolve all wires in this group synchronously."""
-        _check_no_running_loop()
-        return asyncio.run(self.get_all_instances(container))
+        return _run_sync(self.get_all_instances(container))
