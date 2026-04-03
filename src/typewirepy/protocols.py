@@ -26,3 +26,11 @@ class ContainerAdapter(Protocol):
     def has(self, token: WireToken[object]) -> bool:
         """Return True if *token* has been registered."""
         ...
+
+    def get_cached(self, token: WireToken[T]) -> T:
+        """Return cached value for token.
+
+        Raises WireNotRegisteredError if token was never registered.
+        Raises NotResolvedError if token is registered but not yet resolved.
+        """
+        ...

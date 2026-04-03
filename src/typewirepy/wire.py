@@ -9,9 +9,9 @@ from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any, Generic, TypeVar, cast, overload
 
 from typewirepy._introspect import detect_creator_arity
-from typewirepy.errors import CreatorError, WireNotRegisteredError
+from typewirepy.errors import CreatorError, NotResolvedError, WireNotRegisteredError
 from typewirepy.protocols import ContainerAdapter
-from typewirepy.scope import Scope
+from typewirepy.scope import SINGLETON, Scope
 from typewirepy.token import WireToken
 
 T = TypeVar("T")
@@ -211,6 +211,16 @@ class TypeWire(Generic[T]):
 
     def get_instance_sync(self, container: ContainerAdapter) -> T:
         """Synchronous wrapper around :meth:`get_instance`."""
+        if self._scope == SINGLETON:
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                pass  # No loop — asyncio.run() is fine
+            else:
+                try:
+                    return container.get_cached(self._token)
+                except NotResolvedError:
+                    pass  # Not cached yet, fall through to _run_sync
         return _run_sync(self.get_instance(container))
 
 
