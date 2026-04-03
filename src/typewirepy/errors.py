@@ -30,6 +30,14 @@ class DuplicateWireError(TypeWireError):
         super().__init__(f"Duplicate wire: {label!r}")
 
 
+class NotResolvedError(TypeWireError):
+    """Raised when get_cached() is called for a wire not yet resolved."""
+
+    def __init__(self, label: str) -> None:
+        self.label = label
+        super().__init__(f"Wire not resolved yet: {label!r}")
+
+
 class CreatorError(TypeWireError):
     """Raised when a creator function fails during resolution.
 

@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import inspect
 import logging
-from collections.abc import Awaitable, Callable
+import threading
+from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any, Generic, TypeVar, cast, overload
 
 from typewirepy._introspect import detect_creator_arity
-from typewirepy.errors import CreatorError, WireNotRegisteredError
+from typewirepy.errors import CreatorError, NotResolvedError, WireNotRegisteredError
 from typewirepy.protocols import ContainerAdapter
-from typewirepy.scope import Scope
+from typewirepy.scope import SINGLETON, Scope
 from typewirepy.token import WireToken
 
 T = TypeVar("T")
@@ -205,20 +207,44 @@ class TypeWire(Generic[T]):
 
     def apply_sync(self, container: ContainerAdapter) -> None:
         """Synchronous wrapper around :meth:`apply`."""
-        _check_no_running_loop()
-        asyncio.run(self.apply(container))
+        _run_sync(self.apply(container))
 
     def get_instance_sync(self, container: ContainerAdapter) -> T:
         """Synchronous wrapper around :meth:`get_instance`."""
-        _check_no_running_loop()
-        return asyncio.run(self.get_instance(container))
+        if self._scope == SINGLETON:
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                pass  # No loop — asyncio.run() is fine
+            else:
+                try:
+                    return container.get_cached(self._token)
+                except NotResolvedError:
+                    pass  # Not cached yet, fall through to _run_sync
+        return _run_sync(self.get_instance(container))
 
 
-def _check_no_running_loop() -> None:
+def _run_sync(coro: Coroutine[Any, Any, _R]) -> _R:
+    """Run a coroutine synchronously, spawning a thread if an event loop is running."""
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        return
-    raise RuntimeError(
-        "Cannot use sync API from within a running event loop. Use the async API instead."
-    )
+        return asyncio.run(coro)
+
+    result: list[Any] = [None]
+    exc: list[BaseException | None] = [None]
+    ctx = contextvars.copy_context()
+
+    def _worker() -> None:
+        try:
+            result[0] = asyncio.run(coro)
+        except BaseException as e:
+            exc[0] = e
+
+    t = threading.Thread(target=ctx.run, args=(_worker,), daemon=True)
+    t.start()
+    t.join()
+
+    if exc[0] is not None:
+        raise exc[0]
+    return cast("_R", result[0])

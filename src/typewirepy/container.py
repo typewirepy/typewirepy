@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import inspect
 import logging
@@ -8,10 +7,11 @@ from collections.abc import AsyncGenerator, Awaitable, Callable, Generator
 from types import TracebackType
 from typing import TypeVar, cast
 
-from typewirepy.errors import WireNotRegisteredError
+from typewirepy.errors import NotResolvedError, WireNotRegisteredError
 from typewirepy.monitor import CircularDependencyMonitor, ResolutionMonitor
 from typewirepy.scope import SINGLETON, Scope
 from typewirepy.token import WireToken
+from typewirepy.wire import _run_sync
 
 T = TypeVar("T")
 
@@ -85,6 +85,18 @@ class TypeWireContainer:
         """Return True if a factory has been registered for *token*."""
         return token in self._factories
 
+    def get_cached(self, token: WireToken[T]) -> T:
+        """Return cached value for token.
+
+        Raises WireNotRegisteredError if token was never registered.
+        Raises NotResolvedError if token is registered but not yet resolved.
+        """
+        if token not in self._factories:
+            raise WireNotRegisteredError(token.label)
+        if token not in self._singletons:
+            raise NotResolvedError(token.label)
+        return cast("T", self._singletons[token])
+
     async def teardown(self) -> None:
         """Finalize all tracked generators in reverse order and clear state."""
         for gen in reversed(self._generators):
@@ -133,4 +145,4 @@ class _SyncContextManager:
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
     ) -> None:
-        asyncio.run(self._container.teardown())
+        _run_sync(self._container.teardown())
