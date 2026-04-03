@@ -57,6 +57,7 @@ async def test_sync_context_manager_exit_with_running_loop() -> None:
 
 async def test_sync_api_propagates_exceptions() -> None:
     """Exceptions from creators should propagate through the thread boundary."""
+
     def bad_creator() -> str:
         raise ValueError("boom")
 
