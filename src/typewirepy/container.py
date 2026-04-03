@@ -8,10 +8,10 @@ from types import TracebackType
 from typing import TypeVar, cast
 
 from typewirepy.errors import NotResolvedError, WireNotRegisteredError
-from typewirepy.wire import _run_sync
 from typewirepy.monitor import CircularDependencyMonitor, ResolutionMonitor
 from typewirepy.scope import SINGLETON, Scope
 from typewirepy.token import WireToken
+from typewirepy.wire import _run_sync
 
 T = TypeVar("T")
 
