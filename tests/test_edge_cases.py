@@ -10,6 +10,7 @@ import pytest
 from typewirepy import (
     TRANSIENT,
     CreatorError,
+    TypeWire,
     TypeWireContainer,
     combine_wire_groups,
     type_wire_group_of,
@@ -138,7 +139,11 @@ async def test_get_all_instances_propagates_single_failure() -> None:
 
 async def test_get_all_instances_with_all_successful() -> None:
     """Verify order is preserved when all wires resolve successfully."""
-    wires = [type_wire_of(token=f"W{i}", creator=lambda i=i: i) for i in range(5)]
+
+    def make_creator(val: int) -> Callable[[], int]:
+        return lambda: val
+
+    wires = [type_wire_of(token=f"W{i}", creator=make_creator(i)) for i in range(5)]
     group = type_wire_group_of(wires)
 
     async with TypeWireContainer() as container:
@@ -158,7 +163,7 @@ async def test_creator_error_wrapping_async_creator() -> None:
     async def bad_async_creator() -> str:
         raise RuntimeError("async boom")
 
-    wire = type_wire_of(token="AsyncBad", creator=bad_async_creator)
+    wire: TypeWire[str] = type_wire_of(token="AsyncBad", creator=bad_async_creator)
     async with TypeWireContainer() as container:
         await wire.apply(container)
         with pytest.raises(CreatorError, match="async boom") as exc_info:
@@ -409,7 +414,7 @@ async def test_with_creator_2_arg_on_wire_with_imports_preserves_deps() -> None:
 
 def test_wire_repr_simple() -> None:
     """Simple wire repr shows token, scope, and empty imports."""
-    wire = type_wire_of(token="Config", creator=dict)
+    wire: TypeWire[dict[str, object]] = type_wire_of(token="Config", creator=dict)
     r = repr(wire)
     assert "Config" in r
     assert "singleton" in r
@@ -436,7 +441,7 @@ def test_wire_repr_with_imports() -> None:
 def test_wire_token_repr() -> None:
     from typewirepy.token import WireToken
 
-    token = WireToken("MyToken")
+    token: WireToken[str] = WireToken("MyToken")
     assert repr(token) == "WireToken('MyToken')"
 
 
