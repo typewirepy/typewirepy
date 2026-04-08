@@ -2,24 +2,20 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 import pytest
 
 from typewirepy import (
-    SINGLETON,
     TRANSIENT,
     CreatorError,
     TypeWireContainer,
-    WireNotRegisteredError,
     combine_wire_groups,
     type_wire_group_of,
     type_wire_of,
 )
 from typewirepy.errors import NotResolvedError
-
 
 # ---------------------------------------------------------------------------
 # get_cached edge cases
@@ -269,7 +265,7 @@ def test_wire_setattr_raises() -> None:
     """TypeWire blocks attribute assignment after creation."""
     wire = type_wire_of(token="Immut", creator=lambda: 1)
     with pytest.raises(AttributeError, match="immutable"):
-        wire._scope = TRANSIENT  # type: ignore[misc]
+        wire._scope = TRANSIENT
 
 
 def test_wire_delattr_raises() -> None:
@@ -283,7 +279,7 @@ def test_group_setattr_raises() -> None:
     """TypeWireGroup blocks attribute assignment after creation."""
     group = type_wire_group_of([])
     with pytest.raises(AttributeError, match="immutable"):
-        group._wires = []  # type: ignore[misc]
+        group._wires = []
 
 
 def test_group_delattr_raises() -> None:
@@ -413,7 +409,7 @@ async def test_with_creator_2_arg_on_wire_with_imports_preserves_deps() -> None:
 
 def test_wire_repr_simple() -> None:
     """Simple wire repr shows token, scope, and empty imports."""
-    wire = type_wire_of(token="Config", creator=lambda: {})
+    wire = type_wire_of(token="Config", creator=dict)
     r = repr(wire)
     assert "Config" in r
     assert "singleton" in r
