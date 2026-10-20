@@ -77,13 +77,14 @@ async def test_error_during_cleanup_handled(caplog: pytest.LogCaptureFixture) ->
     w1 = type_wire_of(token="Bad", creator=make_bad)
     w2 = type_wire_of(token="Good", creator=make_good)
 
-    container = TypeWireContainer()
+    with pytest.warns(DeprecationWarning, match="raise_teardown_errors=False"):
+        container = TypeWireContainer(raise_teardown_errors=False)
     await w1.apply(container)
     await w2.apply(container)
     await w1.get_instance(container)
     await w2.get_instance(container)
 
-    # Teardown should not raise even though w1's cleanup fails
+    # The deprecated swallow mode does not raise even though w1's cleanup fails
     await container.teardown()
 
     assert "cleanup boom" in caplog.text

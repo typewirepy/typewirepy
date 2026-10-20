@@ -5,6 +5,7 @@ from typewirepy.errors import (
     CreatorError,
     DuplicateWireError,
     NotResolvedError,
+    TeardownError,
     TypeWireError,
     WireNotRegisteredError,
 )
@@ -26,6 +27,7 @@ __all__ = [
     "NotResolvedError",
     "ResolutionMonitor",
     "Scope",
+    "TeardownError",
     "TypeWire",
     "TypeWireContainer",
     "TypeWireError",

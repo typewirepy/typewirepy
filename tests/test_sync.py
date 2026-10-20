@@ -162,3 +162,20 @@ async def test_uncached_singleton_falls_through_to_run_sync() -> None:
     assert result == "fresh"
 
     await container.teardown()
+
+
+def test_sync_api_exceptions_do_not_chain_to_loop_detection() -> None:
+    """_run_sync's "no running loop" check must not leak in as __context__."""
+
+    def bad_creator() -> str:
+        raise ValueError("boom")
+
+    wire = type_wire_of(token="Bad", creator=bad_creator)
+    container = TypeWireContainer()
+    wire.apply_sync(container)
+
+    with pytest.raises(CreatorError) as exc_info:
+        wire.get_instance_sync(container)
+
+    assert isinstance(exc_info.value.__context__, ValueError)
+    assert str(exc_info.value.__context__) == "boom"

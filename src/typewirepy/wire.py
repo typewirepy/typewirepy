@@ -112,7 +112,17 @@ class TypeWire(Generic[T]):
 
         async def factory() -> T:
             try:
-                if wire._create_with is not None:
+                if wire._convention == "lazy":
+                    assert wire._create_with is not None
+
+                    async def resolve_imports() -> dict[str, object]:
+                        return {
+                            name: await container.resolve(imp_wire._token)
+                            for name, imp_wire in wire._imports.items()
+                        }
+
+                    return cast("T", await _maybe_await(wire._create_with(resolve_imports)))
+                elif wire._create_with is not None:
                     resolved: dict[str, object] = {}
                     for name, imp_wire in wire._imports.items():
                         resolved[name] = await container.resolve(imp_wire._token)
@@ -131,6 +141,20 @@ class TypeWire(Generic[T]):
 
         return factory
 
+    async def _call_original(
+        self, resolve_imports: Callable[[], Awaitable[dict[str, object]]]
+    ) -> T:
+        """Run this wire's creator, taking its imports from *resolve_imports*."""
+        if self._create_with is None:
+            assert self._creator is not None
+            return cast("T", await _maybe_await(self._creator()))
+        if self._convention == "lazy":
+            return cast("T", await _maybe_await(self._create_with(resolve_imports)))
+        deps = await resolve_imports()
+        if self._convention == "kwargs":
+            return cast("T", await _maybe_await(self._create_with(**deps)))
+        return cast("T", await _maybe_await(self._create_with(deps)))
+
     async def get_instance(self, container: ContainerAdapter) -> T:
         """Resolve this wire's value from the container."""
         if not container.has(self._token):
@@ -140,24 +164,61 @@ class TypeWire(Generic[T]):
     def with_creator(
         self,
         fn: Callable[..., T | Awaitable[T]],
+        *,
+        keep_imports: bool = False,
     ) -> TypeWire[T]:
-        """Return a new wire with the creator replaced by *fn*."""
+        """Return a new wire with the same token and the creator replaced by *fn*.
+
+        *fn* takes ``(ctx)`` or ``(ctx, original_creator)``; ``ctx`` is always ``None``
+        and ``original_creator`` is a zero-arg async callable that runs this wire's
+        creator and returns its value.
+
+        ``keep_imports=False`` (the default) — without ``original_creator``, the
+        override replaces the whole subgraph: it has no imports, so applying it does
+        not register this wire's imports. With ``original_creator``, the imports are
+        kept and resolved before *fn* runs.
+
+        ``keep_imports=True`` — the override keeps this wire's declared imports, so
+        applying it registers them, but they are resolved (and their creators run)
+        only when *fn* awaits ``original_creator()``. A 1-arg *fn* never resolves them.
+        """
         arity = detect_creator_arity(fn)
+
+        if keep_imports:
+            original_wire = self
+
+            def lazy_create_with(
+                resolve_imports: Callable[[], Awaitable[dict[str, object]]],
+            ) -> T | Awaitable[T]:
+                if arity == 1:
+                    return fn(None)
+
+                def original_caller() -> Awaitable[T]:
+                    return original_wire._call_original(resolve_imports)
+
+                return fn(None, original_caller)
+
+            return TypeWire(
+                token=self._token,
+                creator=None,
+                create_with=lazy_create_with,
+                imports=dict(self._imports),
+                scope=self._scope,
+                convention="lazy",
+            )
 
         if arity == 2:
             original_wire = self
 
             if original_wire._create_with is not None:
-                orig_create_with = original_wire._create_with
-                orig_convention = original_wire._convention
 
                 def new_create_with(deps: dict[str, object]) -> Awaitable[T]:
                     async def _call_with_original() -> T:
+                        async def resolved_imports() -> dict[str, object]:
+                            return deps
+
                         async def original_caller() -> T:
-                            if orig_convention == "kwargs":
-                                return cast("T", await _maybe_await(orig_create_with(**deps)))
-                            else:
-                                return cast("T", await _maybe_await(orig_create_with(deps)))
+                            return await original_wire._call_original(resolved_imports)
 
                         return cast("T", await _maybe_await(fn(None, original_caller)))
 
@@ -229,6 +290,11 @@ def _run_sync(coro: Coroutine[Any, Any, _R]) -> _R:
     try:
         asyncio.get_running_loop()
     except RuntimeError:
+        loop_running = False
+    else:
+        loop_running = True
+    if not loop_running:
+        # Outside the except block, so exceptions don't chain to the RuntimeError.
         return asyncio.run(coro)
 
     result: list[Any] = [None]

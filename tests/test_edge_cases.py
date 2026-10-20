@@ -224,7 +224,7 @@ async def test_creator_error_not_double_wrapped() -> None:
 
 
 async def test_async_generator_cleanup_error_handled(caplog: pytest.LogCaptureFixture) -> None:
-    """Errors during async generator teardown are logged, not raised."""
+    """With the deprecated swallow mode, async cleanup errors are logged, not raised."""
 
     async def make_bad() -> Any:
         yield "value"
@@ -236,7 +236,8 @@ async def test_async_generator_cleanup_error_handled(caplog: pytest.LogCaptureFi
     w1 = type_wire_of(token="AsyncBad", creator=make_bad)
     w2 = type_wire_of(token="AsyncGood", creator=make_good)
 
-    container = TypeWireContainer()
+    with pytest.warns(DeprecationWarning, match="raise_teardown_errors=False"):
+        container = TypeWireContainer(raise_teardown_errors=False)
     await w1.apply(container)
     await w2.apply(container)
     await w1.get_instance(container)

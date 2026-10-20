@@ -1,7 +1,7 @@
 # typewirepy
 
 [![CI](https://github.com/typewirepy/typewirepy/actions/workflows/ci.yml/badge.svg)](https://github.com/typewirepy/typewirepy/actions/workflows/ci.yml)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 Lightweight, container-agnostic dependency injection for Python — typed, explicit, composable.
@@ -131,6 +131,38 @@ async def spy(ctx, original_creator):
     return instance
 
 test_group = group.with_extra_wires([service_wire.with_creator(spy)])
+```
+
+A plain `with_creator(fn)` with a 1-arg `fn` replaces the whole subgraph: the override
+has no imports, so the original's imports are not registered. Pass `keep_imports=True`
+to keep them registered; they are resolved (and their creators run) only if `fn` awaits
+`original_creator()`:
+
+```python
+async def maybe_real(ctx, original_creator):
+    return await original_creator() if use_real else FakeService()
+
+test_group = group.with_extra_wires([service_wire.with_creator(maybe_real, keep_imports=True)])
+```
+
+### Teardown
+
+Generator-based creators are cleaned up when the container exits (or on
+`await container.teardown()`), in reverse creation order, once each. Every cleanup runs
+even if an earlier one raises; then any failures are raised together as one
+`TeardownError` (an `ExceptionGroup`). **Changed in 0.2.0:** a failing cleanup now
+makes the `async with` / `with` block raise on exit; 0.1.x only logged it (the
+deprecated `raise_teardown_errors=False` keeps that for now). If the block is already
+exiting with a non-`Exception` such as `asyncio.CancelledError` or `KeyboardInterrupt`,
+that exception keeps propagating and the cleanup failures are logged instead:
+
+```python
+try:
+    async with TypeWireContainer() as container:
+        ...
+except TeardownError as e:
+    for failure in e.exceptions:  # each one notes which wire's cleanup raised it
+        ...
 ```
 
 ### Introspection
