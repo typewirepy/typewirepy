@@ -2,7 +2,7 @@
 
 ## 1. Goal
 
-Port TypeWire's TypeScript API to Python 3.10+, keeping the same signatures and
+Port TypeWire's TypeScript API to Python 3.11+, keeping the same signatures and
 semantics wherever possible. Deviate only where Python's type system, runtime
 behavior, or community conventions require a different approach.
 
@@ -412,13 +412,14 @@ have nothing to clean. Every cleanup runs even when an earlier one raises.
 **Non-context-manager usage** is still supported — cleanup can be triggered
 explicitly via `await container.teardown()`.
 
-**Cleanup failures.** With `TypeWireContainer(raise_teardown_errors=True)` (or
-`TypeWireContainer.sync(raise_teardown_errors=True)`), teardown — explicit or from
-`__aexit__` / `__exit__` — raises one `TeardownError` after every cleanup has run. It
-is an `ExceptionGroup` (and a `TypeWireError`) holding every cleanup exception in the
-order the cleanups ran, each with a note naming its wire; its message names the first
-failure. A teardown with no failure raises nothing. With the default
-(`raise_teardown_errors=False`) failures are logged and not raised.
+**Cleanup failures.** Teardown — explicit or from `__aexit__` / `__exit__` — raises
+one `TeardownError` after every cleanup has run. It is an `ExceptionGroup` (and a
+`TypeWireError`) holding every cleanup exception in the order the cleanups ran, each
+with a note naming its wire; its message names the first failure. `split()`,
+`subgroup()` and `except*` produce `TeardownError` instances. A teardown with no
+failure raises nothing. The deprecated `raise_teardown_errors=False` (on
+`TypeWireContainer(...)` or `TypeWireContainer.sync(...)`) logs failures instead and
+emits a `DeprecationWarning`.
 
 After teardown the container is empty and can be reused: resolving a wire raises
 `WireNotRegisteredError` until it is applied again.
@@ -658,8 +659,8 @@ class CreatorError(TypeWireError):
     Wraps the original exception as __cause__."""
 
 class TeardownError(ExceptionGroup[Exception], TypeWireError):
-    """Raised by teardown (with raise_teardown_errors=True) when cleanups
-    failed; carries every cleanup exception (see §6)."""
+    """Raised by teardown when cleanups failed; carries every cleanup
+    exception (see §6)."""
 ```
 
 All exceptions inherit from a single base class so users can catch broadly
@@ -957,7 +958,7 @@ supporting deterministic cleanup, a pattern the Python community expects.
 
 ```
 typewirepy/
-├── pyproject.toml           # PEP 621 metadata, requires-python >= "3.10"
+├── pyproject.toml           # PEP 621 metadata, requires-python >= "3.11"
 ├── src/
 │   └── typewirepy/
 │       ├── __init__.py      # public API exports + __all__
@@ -994,7 +995,7 @@ typewirepy/
 - **Name on PyPI:** `typewirepy` (`typewire` is taken by an unrelated package).
 - **GitHub org:** `typewirepy` (mirrors `typewirets` pattern from the TS project)
 - **Import name:** `import typewirepy`
-- **Python:** `>= 3.10` (for `X | Y` union syntax, `match` statements if needed)
+- **Python:** `>= 3.11` (`ExceptionGroup` for `TeardownError`; `X | Y` unions)
 - **Runtime dependencies:** None (stdlib only)
 - **Optional dependencies:** `typewirepy[fastapi]` installs `fastapi` for the
   integration module. The integration submodule imports FastAPI unconditionally,

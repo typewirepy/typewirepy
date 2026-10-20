@@ -1,7 +1,7 @@
 # typewirepy
 
 [![CI](https://github.com/typewirepy/typewirepy/actions/workflows/ci.yml/badge.svg)](https://github.com/typewirepy/typewirepy/actions/workflows/ci.yml)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 Lightweight, container-agnostic dependency injection for Python — typed, explicit, composable.
@@ -149,12 +149,12 @@ test_group = group.with_extra_wires([service_wire.with_creator(maybe_real, keep_
 
 Generator-based creators are cleaned up when the container exits (or on
 `await container.teardown()`), in reverse creation order, once each. Every cleanup runs
-even if an earlier one raises. Pass `raise_teardown_errors=True` to get the failures as
-one `TeardownError` (an `ExceptionGroup`); by default they are logged:
+even if an earlier one raises; then any failures are raised together as one
+`TeardownError` (an `ExceptionGroup`):
 
 ```python
 try:
-    async with TypeWireContainer(raise_teardown_errors=True) as container:
+    async with TypeWireContainer() as container:
         ...
 except TeardownError as e:
     for failure in e.exceptions:  # each one notes which wire's cleanup raised it

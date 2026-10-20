@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import inspect
 import logging
+import warnings
 from collections.abc import AsyncGenerator, Awaitable, Callable, Generator
 from types import TracebackType
 from typing import TypeVar, cast
@@ -19,21 +20,28 @@ logger = logging.getLogger(__name__)
 
 _Cleanup = Generator[object, None, None] | AsyncGenerator[object, None]
 
+_SWALLOW_DEPRECATION = (
+    "raise_teardown_errors=False is deprecated and will be removed in a future release; "
+    "teardown raises TeardownError by default. Handle TeardownError instead."
+)
+
 
 class TypeWireContainer:
     """Default async container that stores factories, manages scopes, and handles teardown.
 
-    Pass ``raise_teardown_errors=True`` to have :meth:`teardown` (and the context-manager
-    exits) raise a :class:`~typewirepy.TeardownError` carrying every cleanup failure.
-    By default failures are logged and not raised.
+    :meth:`teardown` (and the context-manager exits) raise a
+    :class:`~typewirepy.TeardownError` carrying every cleanup failure. The deprecated
+    ``raise_teardown_errors=False`` logs the failures instead.
     """
 
     def __init__(
         self,
         *,
         monitor_factory: Callable[[], ResolutionMonitor] | None = None,
-        raise_teardown_errors: bool = False,
+        raise_teardown_errors: bool = True,
     ) -> None:
+        if not raise_teardown_errors:
+            warnings.warn(_SWALLOW_DEPRECATION, DeprecationWarning, stacklevel=2)
         self._factories: dict[WireToken[object], Callable[[], Awaitable[object]]] = {}
         self._scopes: dict[WireToken[object], Scope] = {}
         self._singletons: dict[WireToken[object], object] = {}
@@ -113,14 +121,13 @@ class TypeWireContainer:
         wires that were never resolved have nothing to clean. Every cleanup runs even
         when an earlier one raises.
 
-        With ``raise_teardown_errors=True``, the failures are raised at the end as one
-        :class:`~typewirepy.TeardownError` (an :class:`ExceptionGroup`) holding every
-        cleanup exception in the order the cleanups ran, each with a note naming its
-        wire; the message names the first failure. With the default
-        (``raise_teardown_errors=False``) each failure is logged and none is raised.
-        A teardown with no failures raises nothing in either mode. When the error is
-        raised from a context-manager exit whose body is already raising, the body's
-        exception becomes the ``TeardownError``'s ``__context__``.
+        The failures are raised at the end as one :class:`~typewirepy.TeardownError`
+        (an :class:`ExceptionGroup`) holding every cleanup exception in the order the
+        cleanups ran, each with a note naming its wire; the message names the first
+        failure. With the deprecated ``raise_teardown_errors=False``, each failure is
+        logged and none is raised. A teardown with no failures raises nothing. When the
+        error is raised from a context-manager exit whose body is already raising, the
+        body's exception becomes the ``TeardownError``'s ``__context__``.
 
         After teardown the container is empty: resolving a wire raises
         :class:`~typewirepy.WireNotRegisteredError` until it is applied again.
@@ -169,12 +176,17 @@ class TypeWireContainer:
         await self.teardown()
 
     @classmethod
-    def sync(cls, *, raise_teardown_errors: bool = False) -> _SyncContextManager:
+    def sync(cls, *, raise_teardown_errors: bool = True) -> _SyncContextManager:
         """Return a synchronous context manager wrapping a new container.
 
-        *raise_teardown_errors* is passed to the container; see :meth:`teardown`.
+        *raise_teardown_errors* (deprecated when ``False``) is passed to the container;
+        see :meth:`teardown`.
         """
-        return _SyncContextManager(cls(raise_teardown_errors=raise_teardown_errors))
+        container = cls()
+        if not raise_teardown_errors:
+            warnings.warn(_SWALLOW_DEPRECATION, DeprecationWarning, stacklevel=2)
+            container._raise_teardown_errors = False
+        return _SyncContextManager(container)
 
 
 class _SyncContextManager:
