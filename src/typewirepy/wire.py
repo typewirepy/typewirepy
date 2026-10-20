@@ -290,6 +290,11 @@ def _run_sync(coro: Coroutine[Any, Any, _R]) -> _R:
     try:
         asyncio.get_running_loop()
     except RuntimeError:
+        loop_running = False
+    else:
+        loop_running = True
+    if not loop_running:
+        # Outside the except block, so exceptions don't chain to the RuntimeError.
         return asyncio.run(coro)
 
     result: list[Any] = [None]
