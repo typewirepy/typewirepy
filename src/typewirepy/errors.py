@@ -48,3 +48,14 @@ class CreatorError(TypeWireError):
         self.label = label
         super().__init__(f"Creator failed for wire {label!r}: {cause}")
         self.__cause__ = cause
+
+
+class TeardownError(ExceptionGroup[Exception], TypeWireError):
+    """Raised by teardown when one or more cleanups failed.
+
+    An :class:`ExceptionGroup` carrying every cleanup exception, in the order the
+    cleanups ran (reverse creation order). Each carries a note naming the wire whose
+    cleanup raised it. The message names the first failure. Being a
+    :class:`TypeWireError` too, it is caught by ``except TypeWireError``; being an
+    exception group, it works with ``except*``.
+    """

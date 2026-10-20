@@ -7,7 +7,7 @@ from collections.abc import AsyncGenerator, Awaitable, Callable, Generator
 from types import TracebackType
 from typing import TypeVar, cast
 
-from typewirepy.errors import NotResolvedError, WireNotRegisteredError
+from typewirepy.errors import NotResolvedError, TeardownError, WireNotRegisteredError
 from typewirepy.monitor import CircularDependencyMonitor, ResolutionMonitor
 from typewirepy.scope import SINGLETON, Scope
 from typewirepy.token import WireToken
@@ -17,20 +17,29 @@ T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
 
+_Cleanup = Generator[object, None, None] | AsyncGenerator[object, None]
+
 
 class TypeWireContainer:
-    """Default async container that stores factories, manages scopes, and handles teardown."""
+    """Default async container that stores factories, manages scopes, and handles teardown.
+
+    Pass ``raise_teardown_errors=True`` to have :meth:`teardown` (and the context-manager
+    exits) raise a :class:`~typewirepy.TeardownError` carrying every cleanup failure.
+    By default failures are logged and not raised.
+    """
 
     def __init__(
         self,
         *,
         monitor_factory: Callable[[], ResolutionMonitor] | None = None,
+        raise_teardown_errors: bool = False,
     ) -> None:
         self._factories: dict[WireToken[object], Callable[[], Awaitable[object]]] = {}
         self._scopes: dict[WireToken[object], Scope] = {}
         self._singletons: dict[WireToken[object], object] = {}
-        self._generators: list[Generator[object, None, None] | AsyncGenerator[object, None]] = []
+        self._generators: list[tuple[str, _Cleanup]] = []
         self._monitor_factory = monitor_factory or CircularDependencyMonitor
+        self._raise_teardown_errors = raise_teardown_errors
         self._active_monitor: ResolutionMonitor | None = None
 
     def create_monitor(self) -> ResolutionMonitor:
@@ -66,11 +75,11 @@ class TypeWireContainer:
             if isinstance(result, AsyncGenerator):
                 agen = cast("AsyncGenerator[object, None]", result)
                 result = await agen.__anext__()
-                self._generators.append(agen)
+                self._generators.append((token.label, agen))
             elif isinstance(result, Generator):
                 sgen = cast("Generator[object, None, None]", result)
                 result = next(sgen)
-                self._generators.append(sgen)
+                self._generators.append((token.label, sgen))
 
             if self._scopes[token] == SINGLETON:
                 self._singletons[token] = result
@@ -98,8 +107,28 @@ class TypeWireContainer:
         return cast("T", self._singletons[token])
 
     async def teardown(self) -> None:
-        """Finalize all tracked generators in reverse order and clear state."""
-        for gen in reversed(self._generators):
+        """Finalize all tracked generators in reverse creation order and clear state.
+
+        Each generator-based creator that was resolved is finalized exactly once;
+        wires that were never resolved have nothing to clean. Every cleanup runs even
+        when an earlier one raises.
+
+        With ``raise_teardown_errors=True``, the failures are raised at the end as one
+        :class:`~typewirepy.TeardownError` (an :class:`ExceptionGroup`) holding every
+        cleanup exception in the order the cleanups ran, each with a note naming its
+        wire; the message names the first failure. With the default
+        (``raise_teardown_errors=False``) each failure is logged and none is raised.
+        A teardown with no failures raises nothing in either mode. When the error is
+        raised from a context-manager exit whose body is already raising, the body's
+        exception becomes the ``TeardownError``'s ``__context__``.
+
+        After teardown the container is empty: resolving a wire raises
+        :class:`~typewirepy.WireNotRegisteredError` until it is applied again.
+        """
+        errors: list[Exception] = []
+        first_label = ""
+        while self._generators:
+            label, gen = self._generators.pop()
             try:
                 if isinstance(gen, AsyncGenerator):
                     with contextlib.suppress(StopAsyncIteration):
@@ -107,13 +136,26 @@ class TypeWireContainer:
                 else:
                     with contextlib.suppress(StopIteration):
                         next(gen)
-            except Exception:
-                logger.exception("Error during teardown of generator %r", gen)
+            except Exception as e:
+                if not self._raise_teardown_errors:
+                    logger.exception("Error during teardown of wire %r", label)
+                    continue
+                e.add_note(f"raised by the cleanup of wire {label!r}")
+                if not errors:
+                    first_label = label
+                errors.append(e)
 
-        self._generators.clear()
         self._singletons.clear()
         self._factories.clear()
         self._scopes.clear()
+
+        if errors:
+            first = errors[0]
+            raise TeardownError(
+                f"{len(errors)} cleanup(s) failed during teardown; first failure in wire "
+                f"{first_label!r}: {type(first).__name__}: {first}",
+                errors,
+            )
 
     async def __aenter__(self) -> TypeWireContainer:
         return self
@@ -127,9 +169,12 @@ class TypeWireContainer:
         await self.teardown()
 
     @classmethod
-    def sync(cls) -> _SyncContextManager:
-        """Return a synchronous context manager wrapping a new container."""
-        return _SyncContextManager(cls())
+    def sync(cls, *, raise_teardown_errors: bool = False) -> _SyncContextManager:
+        """Return a synchronous context manager wrapping a new container.
+
+        *raise_teardown_errors* is passed to the container; see :meth:`teardown`.
+        """
+        return _SyncContextManager(cls(raise_teardown_errors=raise_teardown_errors))
 
 
 class _SyncContextManager:
