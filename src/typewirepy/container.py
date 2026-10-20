@@ -124,10 +124,18 @@ class TypeWireContainer:
         The failures are raised at the end as one :class:`~typewirepy.TeardownError`
         (an :class:`ExceptionGroup`) holding every cleanup exception in the order the
         cleanups ran, each with a note naming its wire; the message names the first
-        failure. With the deprecated ``raise_teardown_errors=False``, each failure is
-        logged and none is raised. A teardown with no failures raises nothing. When the
-        error is raised from a context-manager exit whose body is already raising, the
-        body's exception becomes the ``TeardownError``'s ``__context__``.
+        failing wire and its exception type (the exception messages are in
+        ``exceptions``). With the deprecated ``raise_teardown_errors=False``, each
+        failure is logged and none is raised. A teardown with no failures raises nothing.
+
+        From a context-manager exit whose body is already raising:
+
+        - an :class:`Exception` in flight: the ``TeardownError`` is raised, with the
+          body's exception as its ``__context__``;
+        - any other :class:`BaseException` in flight (``asyncio.CancelledError``,
+          ``KeyboardInterrupt``, ``SystemExit``, ...): that exception keeps propagating
+          and the ``TeardownError`` is logged, so cancellation, ``asyncio.timeout`` and
+          ``TaskGroup`` keep working.
 
         After teardown the container is empty: resolving a wire raises
         :class:`~typewirepy.WireNotRegisteredError` until it is applied again.
@@ -160,8 +168,20 @@ class TypeWireContainer:
             first = errors[0]
             raise TeardownError(
                 f"{len(errors)} cleanup(s) failed during teardown; first failure in wire "
-                f"{first_label!r}: {type(first).__name__}: {first}",
+                f"{first_label!r} ({type(first).__name__})",
                 errors,
+            )
+
+    async def _exit(self, in_flight: BaseException | None) -> None:
+        """Teardown for a context-manager exit; see :meth:`teardown` for the rules."""
+        try:
+            await self.teardown()
+        except TeardownError:
+            if in_flight is None or isinstance(in_flight, Exception):
+                raise
+            logger.exception(
+                "Cleanup failed during teardown while %s was propagating; it is not replaced",
+                type(in_flight).__name__,
             )
 
     async def __aenter__(self) -> TypeWireContainer:
@@ -173,7 +193,7 @@ class TypeWireContainer:
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
     ) -> None:
-        await self.teardown()
+        await self._exit(exc_val)
 
     @classmethod
     def sync(cls, *, raise_teardown_errors: bool = True) -> _SyncContextManager:
@@ -202,4 +222,4 @@ class _SyncContextManager:
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
     ) -> None:
-        _run_sync(self._container.teardown())
+        _run_sync(self._container._exit(exc_val))

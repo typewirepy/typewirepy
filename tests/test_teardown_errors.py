@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncGenerator, Generator
 from typing import Any
 
@@ -70,8 +71,10 @@ async def test_teardown_runs_every_cleanup_and_raises_all_failures() -> None:
     assert [type(e) for e in group.exceptions] == [ValueError, RuntimeError]
     assert group.exceptions[0].__notes__ == ["raised by the cleanup of wire 'Third'"]
     assert group.exceptions[1].__notes__ == ["raised by the cleanup of wire 'First'"]
-    assert "2 cleanup(s) failed" in str(group)
-    assert "'Third': ValueError: third cleanup boom" in str(group)
+    assert str(group) == (
+        "2 cleanup(s) failed during teardown; first failure in wire 'Third' (ValueError)"
+        " (2 sub-exceptions)"
+    )
 
 
 async def test_teardown_errors_raised_from_async_context_manager() -> None:
@@ -283,3 +286,142 @@ def test_default_container_does_not_warn(recwarn: pytest.WarningsRecorder) -> No
     TypeWireContainer()
     TypeWireContainer.sync()
     assert not [w for w in recwarn if issubclass(w.category, DeprecationWarning)]
+
+
+# ---------------------------------------------------------------------------
+# Context-manager exit while the body is already raising
+# ---------------------------------------------------------------------------
+
+
+async def test_async_exit_exception_in_flight_raises_teardown_error() -> None:
+    """An Exception from the body is kept as the TeardownError's __context__."""
+    order: list[str] = []
+    wires = _three_wires(order)
+    body_error = ValueError("body failed")
+
+    async def run() -> None:
+        async with TypeWireContainer() as container:
+            for wire in wires:
+                await wire.apply(container)
+                await wire.get_instance(container)
+            raise body_error
+
+    with pytest.raises(TeardownError) as exc_info:
+        await run()
+
+    assert exc_info.value.__context__ is body_error
+    assert order == ["third", "second", "first"]
+
+
+async def test_async_exit_base_exception_in_flight_wins(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A non-Exception from the body keeps propagating; the cleanup failures are logged."""
+    order: list[str] = []
+    wires = _three_wires(order)
+
+    async def run() -> None:
+        async with TypeWireContainer() as container:
+            for wire in wires:
+                await wire.apply(container)
+                await wire.get_instance(container)
+            raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        await run()
+
+    assert order == ["third", "second", "first"]
+    assert "while KeyboardInterrupt was propagating" in caplog.text
+    assert "third cleanup boom" in caplog.text
+    assert "first cleanup boom" in caplog.text
+
+
+async def test_cancellation_by_asyncio_timeout_is_not_masked(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    order: list[str] = []
+    wires = _three_wires(order)
+
+    async def run() -> None:
+        async with asyncio.timeout(0.01), TypeWireContainer() as container:
+            for wire in wires:
+                await wire.apply(container)
+                await wire.get_instance(container)
+            await asyncio.sleep(10)
+
+    with pytest.raises(TimeoutError):
+        await run()
+
+    assert order == ["third", "second", "first"]
+    assert "while CancelledError was propagating" in caplog.text
+
+
+async def test_task_group_cancellation_is_not_masked(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A sibling's failure cancels the container's task; only the sibling's error surfaces."""
+    order: list[str] = []
+    wires = _three_wires(order)
+    started = asyncio.Event()
+
+    async def uses_container() -> None:
+        async with TypeWireContainer() as container:
+            for wire in wires:
+                await wire.apply(container)
+                await wire.get_instance(container)
+            started.set()
+            await asyncio.sleep(10)
+
+    async def fails() -> None:
+        await started.wait()
+        raise ValueError("sibling failed")
+
+    async def run() -> None:
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(uses_container())
+            tg.create_task(fails())
+
+    with pytest.raises(ExceptionGroup) as exc_info:
+        await run()
+
+    assert [str(e) for e in exc_info.value.exceptions] == ["sibling failed"]
+    assert order == ["third", "second", "first"]
+    assert "while CancelledError was propagating" in caplog.text
+
+
+def test_sync_exit_exception_in_flight_raises_teardown_error() -> None:
+    order: list[str] = []
+    wires = _three_wires(order, use_async=False)
+    body_error = ValueError("body failed")
+
+    def run() -> None:
+        with TypeWireContainer.sync() as container:
+            for wire in wires:
+                wire.apply_sync(container)
+                wire.get_instance_sync(container)
+            raise body_error
+
+    with pytest.raises(TeardownError) as exc_info:
+        run()
+
+    assert exc_info.value.__context__ is body_error
+    assert order == ["third", "second", "first"]
+
+
+def test_sync_exit_base_exception_in_flight_wins(caplog: pytest.LogCaptureFixture) -> None:
+    order: list[str] = []
+    wires = _three_wires(order, use_async=False)
+
+    def run() -> None:
+        with TypeWireContainer.sync() as container:
+            for wire in wires:
+                wire.apply_sync(container)
+                wire.get_instance_sync(container)
+            raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        run()
+
+    assert order == ["third", "second", "first"]
+    assert "while KeyboardInterrupt was propagating" in caplog.text
+    assert "third cleanup boom" in caplog.text

@@ -10,9 +10,12 @@
   `TeardownError` if any failed.
 - **What changes for existing users.** In 0.1.x a failing cleanup was logged and
   swallowed. Now an `async with TypeWireContainer()` or
-  `with TypeWireContainer.sync()` block whose cleanup raises will raise on exit. If
-  the block itself was already raising, that exception becomes the
-  `TeardownError`'s `__context__`.
+  `with TypeWireContainer.sync()` block whose cleanup raises will raise on exit.
+- **When the block is already raising:**
+  - An in-flight `Exception` becomes the `TeardownError`'s `__context__`.
+  - Any other `BaseException` (`asyncio.CancelledError`, `KeyboardInterrupt`,
+    `SystemExit`) keeps propagating, and the `TeardownError` is logged instead. This
+    way cancellation, `asyncio.timeout` and `TaskGroup` are not masked.
 - **Not affected:** containers whose cleanups don't raise behave exactly as before.
 - **To migrate,** handle `TeardownError` (or `TypeWireError`) where the container
   closes, or fix the failing cleanup. To keep the old behaviour for now, pass
@@ -35,10 +38,19 @@
   - It is an `ExceptionGroup` subclass that is also a `TypeWireError`.
   - `exceptions` holds every cleanup exception in the order the cleanups ran
     (reverse creation order). Each carries a note naming its wire.
-  - The message names the first failure.
+  - The message names the first failing wire and its exception type. The exception
+    messages themselves are only in `exceptions`, so they are not duplicated into
+    the group's message.
   - `split()`, `subgroup()` and `except*` produce `TeardownError` instances.
 - `raise_teardown_errors` keyword on `TypeWireContainer(...)` and
   `TypeWireContainer.sync(...)` (default `True`).
+
+### Fixed
+
+- Exceptions raised through the sync API (`apply_sync`, `get_instance_sync`, the sync
+  context manager) no longer carry a spurious
+  `RuntimeError('no running event loop')` as `__context__`. This removes the
+  misleading "During handling of the above exception" block from their tracebacks.
 
 ### Unchanged (now documented and pinned by tests)
 

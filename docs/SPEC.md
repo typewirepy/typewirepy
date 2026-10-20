@@ -417,7 +417,11 @@ one `TeardownError` after every cleanup has run. It is an `ExceptionGroup` (and 
 `TypeWireError`) holding every cleanup exception in the order the cleanups ran, each
 with a note naming its wire; its message names the first failure. `split()`,
 `subgroup()` and `except*` produce `TeardownError` instances. A teardown with no
-failure raises nothing. The deprecated `raise_teardown_errors=False` (on
+failure raises nothing. On a context-manager exit whose body is already raising, an
+in-flight `Exception` becomes the `TeardownError`'s `__context__`, while any other
+`BaseException` (`asyncio.CancelledError`, `KeyboardInterrupt`, `SystemExit`) keeps
+propagating and the `TeardownError` is logged, so cancellation, `asyncio.timeout` and
+`TaskGroup` are not masked. The deprecated `raise_teardown_errors=False` (on
 `TypeWireContainer(...)` or `TypeWireContainer.sync(...)`) logs failures instead and
 emits a `DeprecationWarning`.
 

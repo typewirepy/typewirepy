@@ -150,7 +150,11 @@ test_group = group.with_extra_wires([service_wire.with_creator(maybe_real, keep_
 Generator-based creators are cleaned up when the container exits (or on
 `await container.teardown()`), in reverse creation order, once each. Every cleanup runs
 even if an earlier one raises; then any failures are raised together as one
-`TeardownError` (an `ExceptionGroup`):
+`TeardownError` (an `ExceptionGroup`). **Changed in 0.2.0:** a failing cleanup now
+makes the `async with` / `with` block raise on exit; 0.1.x only logged it (the
+deprecated `raise_teardown_errors=False` keeps that for now). If the block is already
+exiting with a non-`Exception` such as `asyncio.CancelledError` or `KeyboardInterrupt`,
+that exception keeps propagating and the cleanup failures are logged instead:
 
 ```python
 try:

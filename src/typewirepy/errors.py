@@ -61,7 +61,8 @@ class TeardownError(ExceptionGroup[Exception], TypeWireError):
 
     An :class:`ExceptionGroup` carrying every cleanup exception, in the order the
     cleanups ran (reverse creation order). Each carries a note naming the wire whose
-    cleanup raised it. The message names the first failure. Being a
+    cleanup raised it. The message names the first failing wire and its exception
+    type; the exception messages themselves are only in ``exceptions``. Being a
     :class:`TypeWireError` too, it is caught by ``except TypeWireError``; being an
     exception group, it works with ``except*``. :meth:`split`, :meth:`subgroup` and
     ``except*`` produce ``TeardownError`` instances, not plain ``ExceptionGroup``.
