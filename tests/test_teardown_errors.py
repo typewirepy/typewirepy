@@ -53,7 +53,7 @@ def _three_wires(order: list[str], *, use_async: bool = True) -> list[TypeWire[A
 async def test_teardown_runs_every_cleanup_and_raises_all_failures() -> None:
     order: list[str] = []
     wires = _three_wires(order)
-    container = TypeWireContainer(raise_teardown_errors=True)
+    container = TypeWireContainer()
     for wire in wires:
         await wire.apply(container)
     for wire in wires:
@@ -79,7 +79,7 @@ async def test_teardown_errors_raised_from_async_context_manager() -> None:
     wires = _three_wires(order)
 
     async def run() -> None:
-        async with TypeWireContainer(raise_teardown_errors=True) as container:
+        async with TypeWireContainer() as container:
             for wire in wires:
                 await wire.apply(container)
             for wire in wires:
@@ -97,7 +97,7 @@ def test_teardown_errors_raised_from_sync_context_manager() -> None:
     wires = _three_wires(order, use_async=False)
 
     def run() -> None:
-        with TypeWireContainer.sync(raise_teardown_errors=True) as container:
+        with TypeWireContainer.sync() as container:
             for wire in wires:
                 wire.apply_sync(container)
             for wire in wires:
@@ -113,7 +113,7 @@ def test_teardown_errors_raised_from_sync_context_manager() -> None:
 async def test_teardown_errors_except_star() -> None:
     order: list[str] = []
     wires = _three_wires(order)
-    container = TypeWireContainer(raise_teardown_errors=True)
+    container = TypeWireContainer()
     for wire in wires:
         await wire.apply(container)
         await wire.get_instance(container)
@@ -142,7 +142,7 @@ async def test_teardown_cleans_each_wire_once_and_skips_unresolved() -> None:
 
     resolved = type_wire_of(token="Resolved", creator=make("Resolved"))
     unresolved = type_wire_of(token="Unresolved", creator=make("Unresolved"))
-    container = TypeWireContainer(raise_teardown_errors=True)
+    container = TypeWireContainer()
     await resolved.apply(container)
     await unresolved.apply(container)
     await resolved.get_instance(container)
@@ -164,7 +164,7 @@ async def test_teardown_with_no_cleanup_failure_raises_nothing() -> None:
         cleaned.append("ok")
 
     wire = type_wire_of(token="Ok", creator=make_ok)
-    async with TypeWireContainer(raise_teardown_errors=True) as container:
+    async with TypeWireContainer() as container:
         await wire.apply(container)
         await wire.get_instance(container)
 
@@ -180,7 +180,7 @@ async def test_teardown_of_container_that_created_nothing() -> None:
         raise RuntimeError("never boom")
 
     wire = type_wire_of(token="Never", creator=make)
-    container = TypeWireContainer(raise_teardown_errors=True)
+    container = TypeWireContainer()
     await wire.apply(container)
 
     await container.teardown()  # nothing created: nothing cleaned, nothing raised
@@ -190,7 +190,7 @@ async def test_teardown_of_container_that_created_nothing() -> None:
 
 async def test_resolve_after_teardown_fails() -> None:
     wire = type_wire_of(token="Val", creator=lambda: "value")
-    container = TypeWireContainer(raise_teardown_errors=True)
+    container = TypeWireContainer()
     await wire.apply(container)
     assert await wire.get_instance(container) == "value"
 
@@ -202,13 +202,53 @@ async def test_resolve_after_teardown_fails() -> None:
         await container.resolve(wire.token)
 
 
-async def test_default_teardown_runs_every_cleanup_and_raises_nothing(
+async def _resolved_container(order: list[str]) -> TypeWireContainer:
+    container = TypeWireContainer()
+    for wire in _three_wires(order):
+        await wire.apply(container)
+        await wire.get_instance(container)
+    return container
+
+
+async def test_split_and_subgroup_return_teardown_error() -> None:
+    container = await _resolved_container([])
+    with pytest.raises(TeardownError) as exc_info:
+        await container.teardown()
+    group = exc_info.value
+
+    match, rest = group.split(ValueError)
+    assert type(match) is TeardownError
+    assert type(rest) is TeardownError
+    assert match.message == group.message
+    assert [str(e) for e in match.exceptions] == ["third cleanup boom"]
+    assert [str(e) for e in rest.exceptions] == ["first cleanup boom"]
+
+    sub = group.subgroup(RuntimeError)
+    assert type(sub) is TeardownError
+    assert [str(e) for e in sub.exceptions] == ["first cleanup boom"]
+
+
+async def test_except_star_binds_teardown_error() -> None:
+    container = await _resolved_container([])
+    matched: list[type[BaseException]] = []
+    try:
+        await container.teardown()
+    except* ValueError as group:
+        matched.append(type(group))
+    except* RuntimeError as group:
+        matched.append(type(group))
+
+    assert matched == [TeardownError, TeardownError]
+
+
+async def test_teardown_errors_false_is_deprecated_and_logs(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Without raise_teardown_errors, failures are logged (the pre-0.2.0 behaviour)."""
+    """raise_teardown_errors=False keeps the pre-0.2.0 behaviour: log, don't raise."""
     order: list[str] = []
     wires = _three_wires(order)
-    container = TypeWireContainer()
+    with pytest.warns(DeprecationWarning, match="raise_teardown_errors=False"):
+        container = TypeWireContainer(raise_teardown_errors=False)
     for wire in wires:
         await wire.apply(container)
         await wire.get_instance(container)
@@ -218,3 +258,28 @@ async def test_default_teardown_runs_every_cleanup_and_raises_nothing(
     assert order == ["third", "second", "first"]
     assert "third cleanup boom" in caplog.text
     assert "first cleanup boom" in caplog.text
+
+
+def test_sync_teardown_errors_false_is_deprecated_and_logs(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    order: list[str] = []
+    wires = _three_wires(order, use_async=False)
+    with pytest.warns(DeprecationWarning, match="raise_teardown_errors=False") as record:
+        cm = TypeWireContainer.sync(raise_teardown_errors=False)
+    assert len(record) == 1
+    assert record[0].filename == __file__
+
+    with cm as container:
+        for wire in wires:
+            wire.apply_sync(container)
+            wire.get_instance_sync(container)
+
+    assert order == ["third", "second", "first"]
+    assert "third cleanup boom" in caplog.text
+
+
+def test_default_container_does_not_warn(recwarn: pytest.WarningsRecorder) -> None:
+    TypeWireContainer()
+    TypeWireContainer.sync()
+    assert not [w for w in recwarn if issubclass(w.category, DeprecationWarning)]

@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+from typing import TypeVar, cast, overload
+
+_E = TypeVar("_E", bound=Exception)
+_BE = TypeVar("_BE", bound=BaseException)
+
 
 class TypeWireError(Exception):
     """Base exception for all TypeWire errors."""
@@ -57,5 +63,17 @@ class TeardownError(ExceptionGroup[Exception], TypeWireError):
     cleanups ran (reverse creation order). Each carries a note naming the wire whose
     cleanup raised it. The message names the first failure. Being a
     :class:`TypeWireError` too, it is caught by ``except TypeWireError``; being an
-    exception group, it works with ``except*``.
+    exception group, it works with ``except*``. :meth:`split`, :meth:`subgroup` and
+    ``except*`` produce ``TeardownError`` instances, not plain ``ExceptionGroup``.
     """
+
+    @overload
+    def derive(self, excs: Sequence[_E], /) -> ExceptionGroup[_E]: ...
+
+    @overload
+    def derive(self, excs: Sequence[_BE], /) -> BaseExceptionGroup[_BE]: ...
+
+    def derive(self, excs: Sequence[BaseException], /) -> BaseExceptionGroup[BaseException]:
+        # Same overloads as the stdlib, but the derived group is a TeardownError.
+        # split()/subgroup() only pass subsets of self.exceptions, which are Exceptions.
+        return TeardownError(self.message, cast("Sequence[Exception]", excs))
