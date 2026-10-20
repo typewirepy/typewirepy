@@ -133,6 +133,34 @@ async def spy(ctx, original_creator):
 test_group = group.with_extra_wires([service_wire.with_creator(spy)])
 ```
 
+A plain `with_creator(fn)` with a 1-arg `fn` replaces the whole subgraph: the override
+has no imports, so the original's imports are not registered. Pass `keep_imports=True`
+to keep them registered; they are resolved (and their creators run) only if `fn` awaits
+`original_creator()`:
+
+```python
+async def maybe_real(ctx, original_creator):
+    return await original_creator() if use_real else FakeService()
+
+test_group = group.with_extra_wires([service_wire.with_creator(maybe_real, keep_imports=True)])
+```
+
+### Teardown
+
+Generator-based creators are cleaned up when the container exits (or on
+`await container.teardown()`), in reverse creation order, once each. Every cleanup runs
+even if an earlier one raises. Pass `raise_teardown_errors=True` to get the failures as
+one `TeardownError` (an `ExceptionGroup`); by default they are logged:
+
+```python
+try:
+    async with TypeWireContainer(raise_teardown_errors=True) as container:
+        ...
+except TeardownError as e:
+    for failure in e.exceptions:  # each one notes which wire's cleanup raised it
+        ...
+```
+
 ### Introspection
 
 Every wire exposes read-only properties for inspecting the dependency graph at runtime:

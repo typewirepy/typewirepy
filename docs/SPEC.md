@@ -150,7 +150,9 @@ class TypeWire(Generic[T]):
     # Methods
     async def apply(self, container: "ContainerAdapter") -> None: ...
     async def get_instance(self, container: "ContainerAdapter") -> T: ...
-    def with_creator(self, creator: Callable[..., T | Awaitable[T]]) -> "TypeWire[T]": ...
+    def with_creator(
+        self, creator: Callable[..., T | Awaitable[T]], *, keep_imports: bool = False
+    ) -> "TypeWire[T]": ...
 ```
 
 **Gap:** TypeScript infers `TypeWire<T>` from the creator return type. Python type
@@ -228,6 +230,22 @@ The `with_creator` callback supports both 1-arg `(ctx)` and 2-arg
 - `original_creator` is a zero-arg async callable — a closure that captures
   resolved deps internally, so callers simply `await original_creator()`.
 - Works on wires using either `creator` or `create_with` (including imports).
+
+**Imports of the override.** By default (`keep_imports=False`) the 1-arg form
+replaces the whole subgraph: the override has no imports, so applying it does not
+register the original's imports. The 2-arg form keeps them and resolves them before
+the callback runs.
+
+With `keep_imports=True`, the override keeps the declared imports in both forms, so
+applying it registers them, and they are resolved — their creators run — only when the
+callback awaits `original_creator()`. This matches TypeWire TS `withCreator(fn)` and
+the Go port:
+
+```python
+override = svc_wire.with_creator(lambda ctx: FakeService(), keep_imports=True)
+await override.apply(container)   # registers svc_wire's imports too
+await svc_wire.get_instance(container)  # FakeService(); imports not resolved
+```
 
 ### 3.7 `TypeWireContainer` — Direct mapping
 
@@ -388,10 +406,22 @@ with TypeWireContainer.sync() as container:
 ```
 
 The container tracks which dependencies were created via generators and calls
-cleanup in reverse-registration order on exit.
+cleanup in reverse creation order on exit, once each; wires that were never resolved
+have nothing to clean. Every cleanup runs even when an earlier one raises.
 
 **Non-context-manager usage** is still supported — cleanup can be triggered
 explicitly via `await container.teardown()`.
+
+**Cleanup failures.** With `TypeWireContainer(raise_teardown_errors=True)` (or
+`TypeWireContainer.sync(raise_teardown_errors=True)`), teardown — explicit or from
+`__aexit__` / `__exit__` — raises one `TeardownError` after every cleanup has run. It
+is an `ExceptionGroup` (and a `TypeWireError`) holding every cleanup exception in the
+order the cleanups ran, each with a note naming its wire; its message names the first
+failure. A teardown with no failure raises nothing. With the default
+(`raise_teardown_errors=False`) failures are logged and not raised.
+
+After teardown the container is empty and can be reused: resolving a wire raises
+`WireNotRegisteredError` until it is applied again.
 
 ---
 
@@ -626,6 +656,10 @@ class DuplicateWireError(TypeWireError):
 class CreatorError(TypeWireError):
     """Raised when a creator function fails during resolution.
     Wraps the original exception as __cause__."""
+
+class TeardownError(ExceptionGroup[Exception], TypeWireError):
+    """Raised by teardown (with raise_teardown_errors=True) when cleanups
+    failed; carries every cleanup exception (see §6)."""
 ```
 
 All exceptions inherit from a single base class so users can catch broadly
