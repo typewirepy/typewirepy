@@ -645,12 +645,26 @@ Go ports:
 - **A failed creation caches nothing**, so the next resolve retries. A creation that
   ends by cancellation lets the resolves waiting on it retry. A waiter that is
   cancelled leaves the creation running for the others.
-- **A resolve that would wait on a creation that is itself waiting on that resolve's
-  chain** raises `CircularDependencyError` instead of deadlocking. That case is a real
-  cycle split across two concurrent chains.
+- **A resolve that could never stop waiting raises instead of hanging:**
+  - If the creation it would wait on is itself waiting, possibly transitively, on this
+    resolve's chain, it raises `CircularDependencyError`. That is a real cycle split
+    across two concurrent chains.
+  - If that creation runs on an event loop that this resolve's own `*_sync` call is
+    blocking (a sync creator calling `get_instance_sync` inside a running loop), it
+    raises `TypeWireError`. The creation could never resume. Use the async API inside
+    a running loop. `asyncio.to_thread` leaves the loop free, so its sync calls wait
+    as usual.
+- **A creation that finishes after teardown is not kept.** Its generator cleanup runs
+  immediately, nothing is cached, and the creator and its waiters get
+  `WireNotRegisteredError`, as any resolve after teardown does.
 
-Registration and teardown are not synchronised with resolution: apply wires before
-resolving concurrently, and tear down after the resolves finish.
+A task spawned inside a creator inherits the creator's chain, as if the creator awaits
+it. A detached task that resolves its creator's own token while that creator is still
+running therefore gets `CircularDependencyError`. Resolve it after the creation
+finishes, or pass the instance to the task.
+
+Registration is not synchronised with resolution: apply wires before resolving
+concurrently.
 
 ### 9.5 Exception Hierarchy
 

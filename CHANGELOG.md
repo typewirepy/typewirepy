@@ -18,6 +18,13 @@
   waiters retry.
 - **A dependency cycle split across two concurrent resolves raises
   `CircularDependencyError` instead of deadlocking.**
+- **A sync call that would wait on its own blocked event loop raises instead of
+  hanging the loop.** This is the case of a sync creator calling `get_instance_sync`
+  inside a running loop, for a singleton whose creation is in flight on that loop. It
+  now raises `TypeWireError`: use the async API inside a running loop.
+- **A creation that finishes after teardown is cleaned up, not cached.** Its
+  generator cleanup runs, and the resolve raises `WireNotRegisteredError`. Before,
+  its value was cached into the emptied container and its cleanup never ran.
 
 ### Changed
 

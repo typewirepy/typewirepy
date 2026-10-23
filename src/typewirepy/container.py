@@ -1,23 +1,15 @@
 from __future__ import annotations
 
-import asyncio
-import concurrent.futures
 import contextlib
 import inspect
 import logging
-import threading
 import warnings
 from collections.abc import AsyncGenerator, Awaitable, Callable, Generator
-from contextvars import ContextVar
 from types import TracebackType
-from typing import NamedTuple, TypeVar, cast
+from typing import TypeVar, cast
 
-from typewirepy.errors import (
-    CircularDependencyError,
-    NotResolvedError,
-    TeardownError,
-    WireNotRegisteredError,
-)
+from typewirepy._resolution import ResolveCoordinator
+from typewirepy.errors import NotResolvedError, TeardownError, WireNotRegisteredError
 from typewirepy.monitor import CircularDependencyMonitor, ResolutionMonitor
 from typewirepy.scope import SINGLETON, Scope
 from typewirepy.token import WireToken
@@ -33,39 +25,6 @@ _SWALLOW_DEPRECATION = (
     "raise_teardown_errors=False is deprecated and will be removed in a future release; "
     "teardown raises TeardownError by default. Handle TeardownError instead."
 )
-
-# Set as a creation's result when it ends by cancellation: its waiters retry.
-_RETRY = object()
-
-
-class _Creation:
-    """The in-progress creation of one singleton, shared by everyone resolving it."""
-
-    __slots__ = ("future", "token", "waiting_on")
-
-    def __init__(self, token: WireToken[object]) -> None:
-        self.token = token
-        # Thread-safe, and awaitable from any event loop via asyncio.wrap_future.
-        # Marked running so a waiter's cancellation can't cancel it for everyone.
-        self.future: concurrent.futures.Future[object] = concurrent.futures.Future()
-        self.future.set_running_or_notify_cancel()
-        # What work inside this creation is waiting on: (other creation, the tokens on
-        # the way there from this one), so a cycle error can name every hop.
-        self.waiting_on: list[tuple[_Creation, tuple[str, ...]]] = []
-
-
-class _Frame(NamedTuple):
-    container: TypeWireContainer
-    token: WireToken[object]
-    creation: _Creation | None  # None for transients
-    monitor: ResolutionMonitor
-    task: asyncio.Task[object] | None
-
-
-# The chain of resolves the current code is running inside, innermost last. A
-# ContextVar keeps it per logical call: concurrent tasks and threads each extend their
-# own copy, while a task spawned inside a creator inherits its ancestry.
-_RESOLVING: ContextVar[tuple[_Frame, ...]] = ContextVar("typewire_resolving", default=())
 
 
 class TypeWireContainer:
@@ -90,8 +49,9 @@ class TypeWireContainer:
         self._generators: list[tuple[str, _Cleanup]] = []
         self._monitor_factory = monitor_factory or CircularDependencyMonitor
         self._raise_teardown_errors = raise_teardown_errors
-        self._creations: dict[WireToken[object], _Creation] = {}
-        self._lock = threading.Lock()  # guards _singletons/_creations check-and-set
+        # Bumped by teardown, so a creation that outlives it is not kept.
+        self._epoch = 0
+        self._coordinator = ResolveCoordinator(self._singletons, self.create_monitor)
 
     def create_monitor(self) -> ResolutionMonitor:
         """Create a new resolution monitor instance."""
@@ -111,9 +71,12 @@ class TypeWireContainer:
         chain, so only a token already on that chain is a cycle. Concurrent first
         resolves of a singleton share one creation and its value or error; a failed
         creation caches nothing, and one that ends by cancellation lets its waiters
-        retry. A resolve that would wait on a creation that is itself waiting on this
-        resolve's chain raises :class:`~typewirepy.CircularDependencyError` instead of
-        deadlocking.
+        retry. A resolve that could never stop waiting raises instead of hanging:
+        :class:`~typewirepy.CircularDependencyError` for a cycle split across
+        concurrent resolves, and :class:`~typewirepy.TypeWireError` when the creation
+        it would wait on runs on an event loop that its own ``*_sync`` call blocks. A
+        creation that finishes after :meth:`teardown` raises
+        :class:`~typewirepy.WireNotRegisteredError` and is cleaned up, not cached.
         """
         if token not in self._factories:
             raise WireNotRegisteredError(token.label)
@@ -122,128 +85,32 @@ class TypeWireContainer:
             return cast("T", self._singletons[token])
 
         key = cast("WireToken[object]", token)
-        chain = [f for f in _RESOLVING.get() if f.container is self]
-        if any(f.token == key for f in chain):
-            raise CircularDependencyError([*(f.token.label for f in chain), token.label])
+        singleton = self._scopes[key] == SINGLETON
+        result = await self._coordinator.resolve(key, lambda: self._build(key), singleton=singleton)
+        return cast("T", result)
 
-        # One monitor per task: each sees a strictly nested enter/exit sequence.
-        task = asyncio.current_task()
-        reuse = chain and chain[-1].task is task
-        monitor = chain[-1].monitor if reuse else self.create_monitor()
+    async def _build(self, token: WireToken[object]) -> object:
+        """Run *token*'s factory, tracking a generator creator for teardown."""
+        epoch = self._epoch
+        raw = self._factories[token]()
+        result: object = await raw if inspect.isawaitable(raw) else raw
 
-        monitor.enter(key)
-        try:
-            if self._scopes[key] != SINGLETON:
-                return cast("T", await self._create(key, None, monitor, task))
-            while True:
-                with self._lock:
-                    if key in self._singletons:
-                        return cast("T", self._singletons[key])
-                    creation = self._creations.get(key)
-                    owner = creation is None
-                    if creation is None:
-                        creation = self._creations[key] = _Creation(key)
-                if owner:
-                    return cast("T", await self._create_singleton(creation, monitor, task))
-                result = await self._wait(creation, chain)
-                if result is not _RETRY:
-                    return cast("T", result)
-        finally:
-            monitor.exit(key)
+        gen: _Cleanup | None = None
+        if isinstance(result, AsyncGenerator):
+            gen = cast("AsyncGenerator[object, None]", result)
+            result = await gen.__anext__()
+        elif isinstance(result, Generator):
+            gen = cast("Generator[object, None, None]", result)
+            result = next(gen)
 
-    async def _create(
-        self,
-        token: WireToken[object],
-        creation: _Creation | None,
-        monitor: ResolutionMonitor,
-        task: asyncio.Task[object] | None,
-    ) -> object:
-        frame = _Frame(self, token, creation, monitor, task)
-        reset = _RESOLVING.set((*_RESOLVING.get(), frame))
-        try:
-            raw = self._factories[token]()
-            result: object = await raw if inspect.isawaitable(raw) else raw
-
-            if isinstance(result, AsyncGenerator):
-                agen = cast("AsyncGenerator[object, None]", result)
-                result = await agen.__anext__()
-                self._generators.append((token.label, agen))
-            elif isinstance(result, Generator):
-                sgen = cast("Generator[object, None, None]", result)
-                result = next(sgen)
-                self._generators.append((token.label, sgen))
-
-            return result
-        finally:
-            _RESOLVING.reset(reset)
-
-    async def _create_singleton(
-        self,
-        creation: _Creation,
-        monitor: ResolutionMonitor,
-        task: asyncio.Task[object] | None,
-    ) -> object:
-        token = creation.token
-        try:
-            result = await self._create(token, creation, monitor, task)
-        except Exception as e:
-            self._end_creation(creation)
-            creation.future.set_exception(e)
-            raise
-        except BaseException:
-            self._end_creation(creation)
-            creation.future.set_result(_RETRY)
-            raise
-        self._end_creation(creation, result)
-        creation.future.set_result(result)
+        if self._epoch != epoch:
+            # Torn down while this was being created: clean up, don't keep it.
+            if gen is not None:
+                await _finalize(gen)
+            raise WireNotRegisteredError(token.label)
+        if gen is not None:
+            self._generators.append((token.label, gen))
         return result
-
-    def _end_creation(self, creation: _Creation, *result: object) -> None:
-        """Drop the creation and, given a result, cache it in the same critical section."""
-        with self._lock:
-            if result:
-                self._singletons[creation.token] = result[0]
-            if self._creations.get(creation.token) is creation:
-                del self._creations[creation.token]
-
-    async def _wait(self, creation: _Creation, chain: list[_Frame]) -> object:
-        """Wait for another resolve's creation, refusing to wait in a cycle."""
-        # Every creation this chain holds is blocked by this wait, not just the
-        # innermost one, so each records it.
-        records = [
-            (f.creation, (creation, tuple(g.token.label for g in chain[i + 1 :])))
-            for i, f in enumerate(chain)
-            if f.creation is not None
-        ]
-        with self._lock:
-            cycle = self._wait_cycle(creation, chain)
-            if cycle is not None:
-                raise CircularDependencyError(cycle)
-            for held, entry in records:
-                held.waiting_on.append(entry)
-        try:
-            return await asyncio.wrap_future(creation.future)
-        finally:
-            with self._lock:
-                for held, entry in records:
-                    held.waiting_on.remove(entry)
-
-    @staticmethod
-    def _wait_cycle(target: _Creation, chain: list[_Frame]) -> list[str] | None:
-        """Path of the cycle if waiting on *target* would wait on our own chain."""
-        on_chain = {f.token for f in chain}
-        prefix = [f.token.label for f in chain]
-        stack: list[tuple[_Creation, list[str]]] = [(target, [target.token.label])]
-        seen: set[int] = set()
-        while stack:
-            creation, path = stack.pop()
-            if creation.token in on_chain:
-                return [*prefix, *path]
-            if id(creation) in seen:
-                continue
-            seen.add(id(creation))
-            stack.extend((w, [*path, *via, w.token.label]) for w, via in creation.waiting_on)
-        return None
 
     def has(self, token: WireToken[object]) -> bool:
         """Return True if a factory has been registered for *token*."""
@@ -287,17 +154,13 @@ class TypeWireContainer:
         After teardown the container is empty: resolving a wire raises
         :class:`~typewirepy.WireNotRegisteredError` until it is applied again.
         """
+        self._epoch += 1
         errors: list[Exception] = []
         first_label = ""
         while self._generators:
             label, gen = self._generators.pop()
             try:
-                if isinstance(gen, AsyncGenerator):
-                    with contextlib.suppress(StopAsyncIteration):
-                        await gen.__anext__()
-                else:
-                    with contextlib.suppress(StopIteration):
-                        next(gen)
+                await _finalize(gen)
             except Exception as e:
                 if not self._raise_teardown_errors:
                     logger.exception("Error during teardown of wire %r", label)
@@ -354,6 +217,16 @@ class TypeWireContainer:
             warnings.warn(_SWALLOW_DEPRECATION, DeprecationWarning, stacklevel=2)
             container._raise_teardown_errors = False
         return _SyncContextManager(container)
+
+
+async def _finalize(gen: _Cleanup) -> None:
+    """Run a generator creator's cleanup: the code after its ``yield``."""
+    if isinstance(gen, AsyncGenerator):
+        with contextlib.suppress(StopAsyncIteration):
+            await gen.__anext__()
+    else:
+        with contextlib.suppress(StopIteration):
+            next(gen)
 
 
 class _SyncContextManager:

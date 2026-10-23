@@ -9,6 +9,7 @@ from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any, Generic, TypeVar, cast, overload
 
 from typewirepy._introspect import detect_creator_arity
+from typewirepy._resolution import mark_blocking
 from typewirepy.errors import CreatorError, NotResolvedError, WireNotRegisteredError
 from typewirepy.protocols import ContainerAdapter
 from typewirepy.scope import SINGLETON, Scope
@@ -300,6 +301,8 @@ def _run_sync(coro: Coroutine[Any, Any, _R]) -> _R:
     result: list[Any] = [None]
     exc: list[BaseException | None] = [None]
     ctx = contextvars.copy_context()
+    # This thread's loop stays blocked in join() until the worker returns.
+    mark_blocking(ctx, asyncio.get_running_loop())
 
     def _worker() -> None:
         try:

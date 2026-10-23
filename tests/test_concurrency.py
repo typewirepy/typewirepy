@@ -18,11 +18,12 @@ from typewirepy import (
     CreatorError,
     TypeWire,
     TypeWireContainer,
+    WireNotRegisteredError,
     WireToken,
     type_wire_group_of,
     type_wire_of,
 )
-from typewirepy.container import _RESOLVING
+from typewirepy._resolution import _RESOLVING
 from typewirepy.scope import SINGLETON
 
 # Every test that could deadlock if a rule regressed runs under this bound.
@@ -374,3 +375,188 @@ async def test_cycle_split_across_chains_through_a_nested_creation() -> None:
     assert all(isinstance(r, CircularDependencyError) for r in results)
     paths = [r.path for r in results if isinstance(r, CircularDependencyError)]
     assert ["T", "A", "B", "T"] in paths
+
+
+# ---------------------------------------------------------------------------
+# Follow-up findings on issue #15
+# ---------------------------------------------------------------------------
+
+
+async def test_sibling_tasks_in_a_creator_resolving_one_transient() -> None:
+    """Finding 2: tasks a creator gathers share its chain but not each other's."""
+    inner: TypeWire[object] = type_wire_of(token="T", creator=object, scope=TRANSIENT)
+    container = TypeWireContainer()
+    token: WireToken[bool] = WireToken("S")
+
+    async def factory() -> bool:
+        a, b = await asyncio.gather(inner.get_instance(container), inner.get_instance(container))
+        return a is not b
+
+    await inner.apply(container)
+    await container.register(token, factory, SINGLETON)
+    assert await asyncio.wait_for(container.resolve(token), HANG_GUARD) is True
+
+
+async def test_real_cycle_through_sibling_tasks_is_reported() -> None:
+    container = TypeWireContainer()
+    token_a: WireToken[str] = WireToken("A")
+    token_b: WireToken[str] = WireToken("B")
+
+    async def factory_a() -> str:
+        b1, b2 = await asyncio.gather(container.resolve(token_b), container.resolve(token_b))
+        return b1 + b2
+
+    async def factory_b() -> str:
+        return await container.resolve(token_a)
+
+    await container.register(token_a, factory_a, SINGLETON)
+    await container.register(token_b, factory_b, SINGLETON)
+    with pytest.raises(CircularDependencyError) as exc_info:
+        await asyncio.wait_for(container.resolve(token_a), HANG_GUARD)
+    assert exc_info.value.path == ["A", "B", "A"]
+
+
+async def test_siblings_waiting_on_each_other_are_not_a_cycle() -> None:
+    """Finding 8: one sibling waiting on the other's creation, while another root waits
+    on their parent, is not a cycle."""
+    container = TypeWireContainer()
+    token_s: WireToken[str] = WireToken("S")
+    token_y: WireToken[str] = WireToken("Y")
+    token_q: WireToken[str] = WireToken("Q")
+
+    async def factory_y() -> str:
+        await asyncio.sleep(0.02)
+        return "y"
+
+    async def factory_s() -> str:
+        a, b = await asyncio.gather(container.resolve(token_y), container.resolve(token_y))
+        return a + b
+
+    async def factory_q() -> str:
+        await asyncio.sleep(0.005)
+        return "q" + await container.resolve(token_s)
+
+    for token, factory in ((token_s, factory_s), (token_y, factory_y), (token_q, factory_q)):
+        await container.register(token, factory, SINGLETON)
+    results = await asyncio.wait_for(
+        asyncio.gather(container.resolve(token_s), container.resolve(token_q)), HANG_GUARD
+    )
+    assert list(results) == ["yy", "qyy"]
+
+
+async def test_creation_that_outlives_teardown_is_not_cached() -> None:
+    """Finding 6: it raises WireNotRegisteredError for the creator and its waiters."""
+    gate = asyncio.Event()
+
+    async def make() -> str:
+        await gate.wait()
+        return "late"
+
+    wire: TypeWire[str] = type_wire_of(token="Late", creator=make)
+    container = TypeWireContainer()
+    await wire.apply(container)
+    creator = asyncio.create_task(wire.get_instance(container))
+    await asyncio.sleep(0)
+    waiter = asyncio.create_task(container.resolve(wire.token))
+    await asyncio.sleep(0)
+    await container.teardown()
+    gate.set()
+
+    for task in (creator, waiter):
+        with pytest.raises(WireNotRegisteredError, match="Late"):
+            await task
+    assert not container.has(wire.token)
+    with pytest.raises(WireNotRegisteredError):
+        container.get_cached(wire.token)
+
+
+async def test_generator_creation_that_outlives_teardown_is_cleaned_up() -> None:
+    """Finding 10: with the usual single teardown, the late generator still cleans up."""
+    gate = asyncio.Event()
+    events: list[str] = []
+
+    async def make() -> Any:  # async generator creator, as in test_generators.py
+        await gate.wait()
+        events.append("open")
+        yield "conn"
+        events.append("cleanup")
+
+    wire = type_wire_of(token="LateConn", creator=make)
+    container = TypeWireContainer()
+    await wire.apply(container)
+    task = asyncio.create_task(wire.get_instance(container))
+    await asyncio.sleep(0)
+    await container.teardown()
+    gate.set()
+
+    with pytest.raises(WireNotRegisteredError):
+        await task
+    assert events == ["open", "cleanup"]
+    assert container._generators == []
+
+
+def _run_in_thread_with_deadline(main: Any) -> list[Any]:
+    """Run asyncio.run(main()) in a thread, so a blocked loop fails the test, not CI."""
+    out: list[Any] = []
+
+    def target() -> None:
+        try:
+            out.append(asyncio.run(main()))
+        except BaseException as e:
+            out.append(e)
+
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    thread.join(HANG_GUARD * 2)
+    assert not thread.is_alive(), "event loop blocked: the resolve deadlocked"
+    return out
+
+
+def test_sync_call_that_would_wait_on_its_own_blocked_loop_raises() -> None:
+    """Finding 7: S is being created on the loop; a sync creator on that loop calls
+    get_instance_sync for V, which needs S. Waiting would block the loop forever."""
+
+    async def make_s() -> str:
+        await asyncio.sleep(0.05)
+        return "s"
+
+    container = TypeWireContainer()
+    s: TypeWire[str] = type_wire_of(token="S", creator=make_s)
+    v: TypeWire[str] = type_wire_of(token="V", imports={"s": s}, create_with=lambda *, s: s)
+    u: TypeWire[str] = type_wire_of(token="U", creator=lambda: v.get_instance_sync(container))
+
+    async def main() -> list[BaseException | str]:
+        for wire in (s, v, u):
+            await wire.apply(container)
+        first = asyncio.create_task(s.get_instance(container))
+        await asyncio.sleep(0.01)  # S's creation is now in flight on this loop
+        return list(await asyncio.gather(first, u.get_instance(container), return_exceptions=True))
+
+    [results] = _run_in_thread_with_deadline(main)
+    assert results[0] == "s"
+    assert isinstance(results[1], CreatorError)
+    assert "event loop that this *_sync call is blocking" in str(results[1])
+
+
+def test_sync_call_from_to_thread_still_shares_one_creation() -> None:
+    """asyncio.to_thread leaves the loop free, so its sync call can wait as usual."""
+    created: list[str] = []
+
+    async def make_s() -> str:
+        created.append("s")
+        await asyncio.sleep(0.05)
+        return "s"
+
+    container = TypeWireContainer()
+    s: TypeWire[str] = type_wire_of(token="S", creator=make_s)
+
+    async def main() -> list[str]:
+        await s.apply(container)
+        first = asyncio.create_task(s.get_instance(container))
+        await asyncio.sleep(0.01)
+        in_thread = asyncio.to_thread(s.get_instance_sync, container)
+        return list(await asyncio.gather(first, in_thread))
+
+    [results] = _run_in_thread_with_deadline(main)
+    assert results == ["s", "s"]
+    assert created == ["s"]
