@@ -20,8 +20,10 @@ def detect_convention(
     """
     from typewirepy.errors import TypeWireError
 
+    if not callable(create_with):
+        return "dict"
     try:
-        sig = inspect.signature(create_with)  # type: ignore[arg-type]
+        sig = inspect.signature(create_with)
     except (ValueError, TypeError):
         return "dict"
 
@@ -45,8 +47,10 @@ def detect_creator_arity(fn: object) -> Literal[1, 2]:
 
     Returns 1 or 2. Falls back to 1 for uninspectable callables.
     """
+    if not callable(fn):
+        return 1
     try:
-        sig = inspect.signature(fn)  # type: ignore[arg-type]
+        sig = inspect.signature(fn)
     except (ValueError, TypeError):
         return 1
 

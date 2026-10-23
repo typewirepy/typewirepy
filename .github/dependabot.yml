@@ -1,0 +1,20 @@
+version: 2
+updates:
+  # Workflow actions are pinned to commit SHAs with a version comment;
+  # Dependabot bumps both together.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
+
+  # Dev dependencies in uv.lock (the library itself has no runtime dependencies).
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      dev-dependencies:
+        patterns: ["*"]
