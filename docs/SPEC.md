@@ -632,15 +632,25 @@ logging.getLogger("typewirepy").setLevel(logging.DEBUG)
 
 ### 9.4 Thread Safety
 
-`TypeWireContainer` is **not thread-safe by default** — this matches the Python
-convention where most stdlib objects are not thread-safe and the user applies
-locking as needed.
+**Resolution is safe to run concurrently** — from coroutines on one event loop
+(`asyncio.gather`, `get_all_instances`, concurrent requests) and from threads (each
+`*_sync` call runs on its own event loop). The rules, shared with the TypeScript and
+Go ports:
 
-For concurrent usage, a `ThreadSafeTypeWireContainer` may be provided in future
-versions, or users can wrap with their own locks. This is explicitly documented.
+- **Each resolve keeps its own chain.** The chain lives in a `ContextVar`, so
+  concurrent resolves never see each other's. A task spawned inside a creator inherits
+  its parent's chain. Only a token already on the resolve's own chain is a cycle.
+- **Concurrent first resolves of a singleton share one creation**, and so its value or
+  its error. The creator runs once per container, and a generator creator opens once.
+- **A failed creation caches nothing**, so the next resolve retries. A creation that
+  ends by cancellation lets the resolves waiting on it retry. A waiter that is
+  cancelled leaves the creation running for the others.
+- **A resolve that would wait on a creation that is itself waiting on that resolve's
+  chain** raises `CircularDependencyError` instead of deadlocking. That case is a real
+  cycle split across two concurrent chains.
 
-Async safety (multiple coroutines sharing a container within a single event loop)
-is supported — resolution is atomic per `await` call.
+Registration and teardown are not synchronised with resolution: apply wires before
+resolving concurrently, and tear down after the resolves finish.
 
 ### 9.5 Exception Hierarchy
 
@@ -1140,18 +1150,22 @@ When `imports` is omitted, `creator` is required.
 
 ### 17.6 Circular Dependency Detection
 
-Detected at **resolution time** via a pluggable `ResolutionMonitor`. When
-resolving token A triggers resolution of token B which triggers resolution of
-token A, `CircularDependencyError` is raised with the full cycle path:
+Detected at **resolution time** by the container. When resolving token A triggers
+resolution of token B, which triggers resolution of token A, `CircularDependencyError`
+is raised with the full cycle path:
 
 ```
 CircularDependencyError: Circular dependency: A -> B -> A
 ```
 
-The default `CircularDependencyMonitor` tracks the resolution path using a set
-for O(1) cycle detection and a list for error reporting. The monitor wraps
-`TypeWireContainer.resolve()` — the first (root) resolve call creates a monitor,
-and nested resolves (from factories) reuse the same monitor instance.
+The container tracks each resolve's chain itself (see §9.4), so cycles are detected
+whatever monitor is installed, and so are cycles split across concurrent chains.
+
+A `ResolutionMonitor` observes resolution and may raise from `enter` to abort it. The
+first resolve on a task creates a monitor, and nested resolves on that task reuse it.
+Each monitor therefore sees one strictly nested `enter`/`exit` sequence, never calls
+interleaved from concurrent resolves. The default `CircularDependencyMonitor` also
+tracks the path.
 
 Custom monitors can be provided via `TypeWireContainer(monitor_factory=...)`.
 The `ResolutionMonitor` protocol requires `enter(token)` and `exit(token)`
@@ -1182,5 +1196,5 @@ Final checklist confirming alignment with Python community conventions.
 | Dataclass-compatible | ✅ | No special handling needed |
 | Distributed-safe (Spark/Ray) | ✅ | Wires are module-level constants imported normally; containers are created locally per-process. No serialization of wires or containers is needed or supported |
 | FastAPI integration | ✅ | `WireDepends()` adapter, zero coupling in core |
-| Thread safety documented | ✅ | Explicitly not thread-safe; documented |
+| Thread safety documented | ✅ | Concurrent resolution is safe from tasks and threads (§9.4); registration and teardown are not synchronised |
 | `__repr__` for debugging | ✅ | Meaningful repr on all public types |

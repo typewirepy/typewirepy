@@ -1,6 +1,6 @@
 [project]
 name = "typewirepy"
-version = "0.2.0"
+version = "0.2.1"
 description = "Lightweight, container-agnostic dependency injection for Python — typed, explicit, composable."
 readme = "README.md"
 license = "MIT"

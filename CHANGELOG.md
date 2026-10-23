@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.2.1
+
+### Fixed
+
+- **Concurrent resolves no longer raise a false `CircularDependencyError` (#15).**
+  Two tasks or threads resolving at the same time used to share one resolution
+  monitor. One resolve then saw the other's tokens as a cycle on an acyclic graph.
+  This affected `asyncio.gather`, `TypeWireGroup.get_all_instances` with a shared
+  import, concurrent requests, and threads calling `get_instance_sync`. Each resolve
+  now keeps its own chain, in a `ContextVar`.
+- **A singleton is created once per container, even when first resolved
+  concurrently (#15).** Concurrent first resolves now share one creation and its
+  value or error. Before, each ran the creator: callers received different objects
+  for one singleton, and a generator creator opened its resource twice. A failed
+  creation still caches nothing. A creation that ends by cancellation lets its
+  waiters retry.
+- **A dependency cycle split across two concurrent resolves raises
+  `CircularDependencyError` instead of deadlocking.**
+
+### Changed
+
+- **Cycle detection is built into the container.** It works whatever
+  `monitor_factory` is installed; before, a monitor that didn't detect cycles let a
+  true cycle recurse until `RecursionError`.
+- **Monitors are created per task.** The first resolve on a task gets one; nested
+  resolves on that task reuse it. A `ResolutionMonitor` therefore never sees
+  interleaved `enter`/`exit` calls from concurrent resolves.
+- **Not changed:** the monitor API (`monitor_factory`, `create_monitor()`,
+  `ResolutionMonitor`, `CircularDependencyMonitor`), error types and messages.
+
 ## 0.2.0
 
 ### Changed (behaviour change)
