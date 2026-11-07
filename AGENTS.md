@@ -1,5 +1,7 @@
 # Agent guidelines
 
+- `docs/projects/` holds internal working briefs: never copy, quote or summarise them into public docs (`README.md`, `CHANGELOG.md`, `docs/*.md`, docstrings), and keep them out of the sdist (`[tool.hatch.build.targets.sdist]` in `pyproject.toml`).
+
 <!-- soft-factorio:begin -->
 ## Software factory
 
