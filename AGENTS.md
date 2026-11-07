@@ -1,6 +1,8 @@
 # Agent guidelines
 
-- `docs/projects/` holds internal working briefs: never copy, quote or summarise them into public docs (`README.md`, `CHANGELOG.md`, `docs/*.md`, docstrings), and keep them out of the sdist (`[tool.hatch.build.targets.sdist]` in `pyproject.toml`).
+- `docs/projects/` holds working briefs. This repo is public, so never write anything there that can't be public. Don't paste or link briefs into user docs (`README.md`, `docs/SPEC.md`, `docs/best-practices.md`); describe shipped behaviour in `CHANGELOG.md` and docstrings in your own words.
+- The sdist is an explicit file allowlist (`[tool.hatch.build.targets.sdist]` in `pyproject.toml`): add a new public doc there by name, never a whole folder.
+- The `release` skill lives only at `.claude/skills/release/SKILL.md`; agents in other tools should read it from there.
 
 <!-- soft-factorio:begin -->
 ## Software factory

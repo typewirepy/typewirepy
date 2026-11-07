@@ -48,3 +48,6 @@ result-*
 # ── Distribution ──
 dist/
 *.tar.gz
+
+# ── Agent scratch space (create-pr skill) ──
+.scratch/
