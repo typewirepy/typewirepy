@@ -33,7 +33,8 @@
 - `TypeWire.with_creator(fn, *, keep_imports=True)` — an override that keeps the
   wire's declared imports. Applying it registers them; they are resolved, and their
   creators run, only when `fn` awaits `original_creator()` (a 1-arg `fn` never
-  resolves them). This matches TypeWire TS `withCreator(fn)` and the Go port.
+  resolves them). This matches TypeWire TS `withCreator(fn)` and the Go port
+  ([typewirego](https://github.com/typewirego/typewirego)).
 - `TeardownError`, exported from `typewirepy`:
   - It is an `ExceptionGroup` subclass that is also a `TypeWireError`.
   - `exceptions` holds every cleanup exception in the order the cleanups ran

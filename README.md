@@ -219,6 +219,16 @@ async def root(db: str = WireDepends(db_wire)):
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Other ports
+
+TypeWire has one design and three ports. Rules P1–P10 (late binding, lazy creation,
+singletons, transients, retry, rebinding, cycles, teardown order, single use and joined
+cleanup errors) are shared and pinned by a common conformance suite.
+
+- TypeScript: [typewirets](https://github.com/typewirets/typewirets)
+- Go: [typewirego](https://github.com/typewirego/typewirego), which also has concurrent
+  resolution, contexts and an observer (P11–P20)
+
 ## License
 
 MIT

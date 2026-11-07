@@ -239,7 +239,7 @@ the callback runs.
 With `keep_imports=True`, the override keeps the declared imports in both forms, so
 applying it registers them, and they are resolved — their creators run — only when the
 callback awaits `original_creator()`. This matches TypeWire TS `withCreator(fn)` and
-the Go port:
+the Go port ([typewirego](https://github.com/typewirego/typewirego)):
 
 ```python
 override = svc_wire.with_creator(lambda ctx: FakeService(), keep_imports=True)
