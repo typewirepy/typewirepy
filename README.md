@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/typewirepy/typewirepy/main/docs/assets/logo.png" alt="TypeWire PY logo" width="160">
+</p>
+
 # typewirepy
 
 [![CI](https://github.com/typewirepy/typewirepy/actions/workflows/ci.yml/badge.svg)](https://github.com/typewirepy/typewirepy/actions/workflows/ci.yml)
